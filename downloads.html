@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoPortal - Downloads</title>
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body class="d-flex flex-column min-vh-100 bg-light">
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+    <div class="container-fluid px-4">
+      <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="index.html">
+        <i class="bi bi-geo-alt-fill text-primary"></i> GeoPortal
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item">
+            <a class="nav-link" href="index.html"><i class="bi bi-house-door me-1"></i> Início</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="galeria.html"><i class="bi bi-images me-1"></i> Galeria</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link active" href="downloads.html"><i class="bi bi-download me-1"></i> Downloads</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Conteúdo Principal -->
+  <main class="container my-4 flex-grow-1">
+    <div class="row mb-4">
+      <div class="col">
+        <h1 class="h3 fw-bold text-secondary mb-1">Área de Downloads</h1>
+        <p class="text-muted small">Baixe dados vetoriais, camadas GeoJSON e SHP para análises em GIS.</p>
+      </div>
+    </div>
+
+    <!-- Tabela / Lista de Downloads -->
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th scope="col" class="ps-4">Dataset</th>
+                <th scope="col">Descrição</th>
+                <th scope="col">Formato</th>
+                <th scope="col" class="text-end pe-4">Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="ps-4 fw-medium"><i class="bi bi-file-earmark-zip me-2 text-primary"></i>Açudes</td>
+                <td class="text-muted">Limites e dados geográficos dos açudes monitorados.</td>
+                <td><span class="badge bg-secondary">GeoJSON</span></td>
+                <td class="text-end pe-4">
+                  <a href="dados/acudes.geojson" download="acudes.geojson" type="application/json" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-download me-1"></i> Baixar
+                  </a>
+                </td>
+              </tr>
+              <tr>
+                <td class="ps-4 fw-medium"><i class="bi bi-file-earmark-zip me-2 text-primary"></i>Bacias Hidrográficas</td>
+                <td class="text-muted">Mapeamento das bacias e sub-bacias hidrográficas.</td>
+                <td><span class="badge bg-secondary">GeoJSON</span></td>
+                <td class="text-end pe-4">
+                  <a href="dados/bacias.geojson" download="bacias.geojson" type="application/json" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-download me-1"></i> Baixar
+                  </a>
+                </td>
+              </tr>
+              <tr>
+                <td class="ps-4 fw-medium"><i class="bi bi-file-earmark-zip me-2 text-primary"></i>Municípios</td>
+                <td class="text-muted">Divisão territorial e limites municipais.</td>
+                <td><span class="badge bg-secondary">GeoJSON</span></td>
+                <td class="text-end pe-4">
+                  <a href="dados/municipios.geojson" download="municipios.geojson" type="application/json" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-download me-1"></i> Baixar
+                  </a>
+                </td>
+              </tr>
+              <tr>
+                <td class="ps-4 fw-medium"><i class="bi bi-file-earmark-zip me-2 text-primary"></i>Rios e Cursos d'Água</td>
+                <td class="text-muted">Drenagem e rede hidrográfica detalhada.</td>
+                <td><span class="badge bg-secondary">GeoJSON</span></td>
+                <td class="text-end pe-4">
+                  <a href="dados/rios.geojson" download="rios.geojson" type="application/json" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-download me-1"></i> Baixar
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Rodapé -->
+  <footer class="bg-dark text-white-50 text-center py-3 mt-auto">
+    <div class="container">
+      <small>&copy; GeoPortal - Todos os direitos reservados.</small>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
