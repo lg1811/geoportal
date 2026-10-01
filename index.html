@@ -15,6 +15,8 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-search@3.0.5/dist/leaflet-search.min.css" />
   <!-- Geoman (Leaflet.pm) CSS -->
   <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.css" />
+  <!-- Leaflet MarkerCluster (agrupa os poços) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/main.css">
 </head>
@@ -144,6 +146,23 @@
                   </div>
                 </div>
 
+
+                <!-- Poços -->
+                <div class="layer-row">
+                  <div class="layer-row-main">
+                    <span class="layer-swatch rounded-circle" style="background:#d97706; border:2px solid #ffffff; box-shadow:0 0 0 1px #d97706;"></span>
+                    <label class="layer-name" for="checkPocos">Poços</label>
+                    <button class="layer-expand" type="button" data-bs-toggle="collapse" data-bs-target="#opPoc" aria-expanded="false" aria-label="Opacidade de Poços" title="Opacidade">
+                      <i class="ph ph-sliders-horizontal"></i>
+                    </button>
+                    <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="checkPocos"></div>
+                  </div>
+                  <div class="collapse layer-opacity" id="opPoc">
+                    <div class="d-flex justify-content-between small text-secondary"><span>Opacidade</span><span id="valOpPoc">100%</span></div>
+                    <input type="range" class="form-range opacity-slider-input" id="rangeOpPoc" min="0" max="1" step="0.05" value="1">
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
@@ -250,6 +269,7 @@
           <option value="acudes">Açudes</option>
           <option value="bacias">Bacias Hidrográficas</option>
           <option value="rios">Rios</option>
+          <option value="pocos">Poços</option>
         </select>
       </div>
       <button type="button" id="closeTableBtn" class="btn btn-sm btn-close btn-close-white"></button>
@@ -271,10 +291,12 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="https://unpkg.com/leaflet-search@3.0.5/dist/leaflet-search.min.js"></script>
   <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.min.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script src="dados/acudes.js"></script>
   <script src="dados/bacias.js"></script>
   <script src="dados/municipios.js" charset="utf-8"></script>
   <script src="dados/rios.js"></script>
+  <script src="dados/pocos_pb.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

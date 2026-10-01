@@ -57,169 +57,197 @@
     </div>
   </div>
 
-  <!-- Conteúdo Principal: Grid de Cartões -->
+  <!-- Conteúdo Principal: Grid de Cartões (cada cartão inteiro abre o visualizador) -->
   <main class="container pb-5 flex-grow-1">
     <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
-      
-      <!-- Card 1 -->
+
       <div class="col">
-        <div class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden">
-          <div class="bg-white text-center p-2 border-bottom" onclick="openMapModal('Açudes Monitorados', 'img/acudes-rios-monitorados.png')" style="cursor: pointer;">
-            <img src="img/acudes-rios-monitorados.png" class="img-fluid rounded-2 object-fit-contain" alt="Açudes Monitorados" style="height: 180px;">
+        <article class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden" tabindex="0" role="button"
+                 data-title="Açudes Monitorados" data-src="img/acudes-rios-monitorados.png" aria-label="Expandir mapa: Açudes Monitorados">
+          <div class="bg-white text-center p-2 border-bottom">
+            <img src="img/acudes-rios-monitorados.png" class="img-fluid rounded-2 object-fit-contain" alt="Açudes Monitorados" style="height: 180px;" loading="lazy" decoding="async">
           </div>
           <div class="card-body d-flex flex-column justify-content-between p-3 text-center">
             <div>
               <h6 class="card-title fw-bold text-dark mb-2">Açudes Monitorados</h6>
               <p class="card-text text-muted small">Monitoramento da qualidade da água dos principais reservatórios.</p>
             </div>
-            <button type="button" onclick="openMapModal('Açudes Monitorados', 'img/acudes-rios-monitorados.png')" class="btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
+            <span class="gallery-cta btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
               <i class="ph ph-magnifying-glass-plus"></i> Expandir Mapa
-            </button>
+            </span>
           </div>
-        </div>
+        </article>
       </div>
 
-      <!-- Card 2 -->
       <div class="col">
-        <div class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden">
-          <div class="bg-white text-center p-2 border-bottom" onclick="openMapModal('Classes de Terras para Irrigação', 'img/classes-terras-irrigacao.png')" style="cursor: pointer;">
-            <img src="img/classes-terras-irrigacao.png" class="img-fluid rounded-2 object-fit-contain" alt="Classes de Terras" style="height: 180px;">
+        <article class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden" tabindex="0" role="button"
+                 data-title="Classes de Terras para Irrigação" data-src="img/classes-terras-irrigacao.png" aria-label="Expandir mapa: Classes de Terras para Irrigação">
+          <div class="bg-white text-center p-2 border-bottom">
+            <img src="img/classes-terras-irrigacao.png" class="img-fluid rounded-2 object-fit-contain" alt="Classes de Terras" style="height: 180px;" loading="lazy" decoding="async">
           </div>
           <div class="card-body d-flex flex-column justify-content-between p-3 text-center">
             <div>
               <h6 class="card-title fw-bold text-dark mb-2">Classes de Terras para Irrigação</h6>
               <p class="card-text text-muted small">Aptidão e classificação dos solos estaduais para uso agrícola.</p>
             </div>
-            <button type="button" onclick="openMapModal('Classes de Terras para Irrigação', 'img/classes-terras-irrigacao.png')" class="btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
+            <span class="gallery-cta btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
               <i class="ph ph-magnifying-glass-plus"></i> Expandir Mapa
-            </button>
+            </span>
           </div>
-        </div>
+        </article>
       </div>
 
-      <!-- Card 3 -->
       <div class="col">
-        <div class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden">
-          <div class="bg-white text-center p-2 border-bottom" onclick="openMapModal('Mesorregiões', 'img/mesorregioes.png')" style="cursor: pointer;">
-            <img src="img/mesorregioes.png" class="img-fluid rounded-2 object-fit-contain" alt="Mesorregiões" style="height: 180px;">
+        <article class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden" tabindex="0" role="button"
+                 data-title="Mesorregiões" data-src="img/mesorregioes.png" aria-label="Expandir mapa: Mesorregiões">
+          <div class="bg-white text-center p-2 border-bottom">
+            <img src="img/mesorregioes.png" class="img-fluid rounded-2 object-fit-contain" alt="Mesorregiões" style="height: 180px;" loading="lazy" decoding="async">
           </div>
           <div class="card-body d-flex flex-column justify-content-between p-3 text-center">
             <div>
               <h6 class="card-title fw-bold text-dark mb-2">Mesorregiões</h6>
               <p class="card-text text-muted small">Divisão regional administrativa e geográfica do IBGE.</p>
             </div>
-            <button type="button" onclick="openMapModal('Mesorregiões', 'img/mesorregioes.png')" class="btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
+            <span class="gallery-cta btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
               <i class="ph ph-magnifying-glass-plus"></i> Expandir Mapa
-            </button>
+            </span>
           </div>
-        </div>
+        </article>
       </div>
 
-      <!-- Card 4 -->
       <div class="col">
-        <div class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden">
-          <div class="bg-white text-center p-2 border-bottom" onclick="openMapModal('Microrregiões', 'img/microrregioes.png')" style="cursor: pointer;">
-            <img src="img/microrregioes.png" class="img-fluid rounded-2 object-fit-contain" alt="Microrregiões" style="height: 180px;">
+        <article class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden" tabindex="0" role="button"
+                 data-title="Microrregiões" data-src="img/microrregioes.png" aria-label="Expandir mapa: Microrregiões">
+          <div class="bg-white text-center p-2 border-bottom">
+            <img src="img/microrregioes.png" class="img-fluid rounded-2 object-fit-contain" alt="Microrregiões" style="height: 180px;" loading="lazy" decoding="async">
           </div>
           <div class="card-body d-flex flex-column justify-content-between p-3 text-center">
             <div>
               <h6 class="card-title fw-bold text-dark mb-2">Microrregiões</h6>
               <p class="card-text text-muted small">Subdivisões dos municípios em agrupamentos regionais.</p>
             </div>
-            <button type="button" onclick="openMapModal('Microrregiões', 'img/microrregioes.png')" class="btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
+            <span class="gallery-cta btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
               <i class="ph ph-magnifying-glass-plus"></i> Expandir Mapa
-            </button>
+            </span>
           </div>
-        </div>
+        </article>
       </div>
 
-      <!-- Card 5 -->
       <div class="col">
-        <div class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden">
-          <div class="bg-white text-center p-2 border-bottom" onclick="openMapModal('Bacias Hidrográficas', 'img/bacias.png')" style="cursor: pointer;">
-            <img src="img/bacias.png" class="img-fluid rounded-2 object-fit-contain" alt="Bacias Hidrográficas" style="height: 180px;">
+        <article class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden" tabindex="0" role="button"
+                 data-title="Bacias Hidrográficas" data-src="img/bacias.png" aria-label="Expandir mapa: Bacias Hidrográficas">
+          <div class="bg-white text-center p-2 border-bottom">
+            <img src="img/bacias.png" class="img-fluid rounded-2 object-fit-contain" alt="Bacias Hidrográficas" style="height: 180px;" loading="lazy" decoding="async">
           </div>
           <div class="card-body d-flex flex-column justify-content-between p-3 text-center">
             <div>
               <h6 class="card-title fw-bold text-dark mb-2">Bacias Hidrográficas</h6>
               <p class="card-text text-muted small">Delimitação oficial das bacias e sub-bacias hidrográficas.</p>
             </div>
-            <button type="button" onclick="openMapModal('Bacias Hidrográficas', 'img/bacias.png')" class="btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
+            <span class="gallery-cta btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
               <i class="ph ph-magnifying-glass-plus"></i> Expandir Mapa
-            </button>
+            </span>
           </div>
-        </div>
+        </article>
       </div>
 
-      <!-- Card 6 -->
       <div class="col">
-        <div class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden">
-          <div class="bg-white text-center p-2 border-bottom" onclick="openMapModal('Geologia', 'img/geologia.png')" style="cursor: pointer;">
-            <img src="img/geologia.png" class="img-fluid rounded-2 object-fit-contain" alt="Geologia" style="height: 180px;">
+        <article class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden" tabindex="0" role="button"
+                 data-title="Geologia" data-src="img/geologia.png" aria-label="Expandir mapa: Geologia">
+          <div class="bg-white text-center p-2 border-bottom">
+            <img src="img/geologia.png" class="img-fluid rounded-2 object-fit-contain" alt="Geologia" style="height: 180px;" loading="lazy" decoding="async">
           </div>
           <div class="card-body d-flex flex-column justify-content-between p-3 text-center">
             <div>
               <h6 class="card-title fw-bold text-dark mb-2">Geologia</h6>
               <p class="card-text text-muted small">Mapeamento das formações rochosas e substratos geológicos.</p>
             </div>
-            <button type="button" onclick="openMapModal('Geologia', 'img/geologia.png')" class="btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
+            <span class="gallery-cta btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
               <i class="ph ph-magnifying-glass-plus"></i> Expandir Mapa
-            </button>
+            </span>
           </div>
-        </div>
+        </article>
       </div>
 
-      <!-- Card 7 -->
       <div class="col">
-        <div class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden">
-          <div class="bg-white text-center p-2 border-bottom" onclick="openMapModal('Geomorfologia', 'img/geomorfologia.png')" style="cursor: pointer;">
-            <img src="img/geomorfologia.png" class="img-fluid rounded-2 object-fit-contain" alt="Geomorfologia" style="height: 180px;">
+        <article class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden" tabindex="0" role="button"
+                 data-title="Geomorfologia" data-src="img/geomorfologia.png" aria-label="Expandir mapa: Geomorfologia">
+          <div class="bg-white text-center p-2 border-bottom">
+            <img src="img/geomorfologia.png" class="img-fluid rounded-2 object-fit-contain" alt="Geomorfologia" style="height: 180px;" loading="lazy" decoding="async">
           </div>
           <div class="card-body d-flex flex-column justify-content-between p-3 text-center">
             <div>
               <h6 class="card-title fw-bold text-dark mb-2">Geomorfologia</h6>
               <p class="card-text text-muted small">Formas de relevo, planaltos, depressões e unidades geomórficas.</p>
             </div>
-            <button type="button" onclick="openMapModal('Geomorfologia', 'img/geomorfologia.png')" class="btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
+            <span class="gallery-cta btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
               <i class="ph ph-magnifying-glass-plus"></i> Expandir Mapa
-            </button>
+            </span>
           </div>
-        </div>
+        </article>
       </div>
 
-      <!-- Card 8 -->
       <div class="col">
-        <div class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden">
-          <div class="bg-white text-center p-2 border-bottom" onclick="openMapModal('Pluviometria Média Anual', 'img/pluviometria.png')" style="cursor: pointer;">
-            <img src="img/pluviometria.png" class="img-fluid rounded-2 object-fit-contain" alt="Pluviometria" style="height: 180px;">
+        <article class="card h-100 shadow-sm border-0 gallery-card rounded-3 overflow-hidden" tabindex="0" role="button"
+                 data-title="Pluviometria Média Anual" data-src="img/pluviometria.png" aria-label="Expandir mapa: Pluviometria Média Anual">
+          <div class="bg-white text-center p-2 border-bottom">
+            <img src="img/pluviometria.png" class="img-fluid rounded-2 object-fit-contain" alt="Pluviometria" style="height: 180px;" loading="lazy" decoding="async">
           </div>
           <div class="card-body d-flex flex-column justify-content-between p-3 text-center">
             <div>
               <h6 class="card-title fw-bold text-dark mb-2">Pluviometria Média Anual</h6>
               <p class="card-text text-muted small">Distribuição e médias históricas de precipitação pluviométrica.</p>
             </div>
-            <button type="button" onclick="openMapModal('Pluviometria Média Anual', 'img/pluviometria.png')" class="btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
+            <span class="gallery-cta btn btn-sm btn-outline-primary w-100 d-flex align-items-center justify-content-center gap-1 mt-3">
               <i class="ph ph-magnifying-glass-plus"></i> Expandir Mapa
-            </button>
+            </span>
           </div>
-        </div>
+        </article>
       </div>
 
     </div>
   </main>
 
-  <!-- Modal sem Rodapé (Apenas Visualização) -->
-  <div class="modal fade" id="mapViewerModal" tabindex="-1" aria-labelledby="mapViewerModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-centered">
+  <!-- Visualizador de mapas: zoom, arrastar, navegação e download -->
+  <div class="modal fade" id="mapViewerModal" tabindex="-1" aria-labelledby="modalMapTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-fullscreen-md-down">
       <div class="modal-content border-0 shadow-lg">
-        <div class="modal-header bg-dark text-white border-bottom">
-          <h5 class="modal-title fw-bold d-flex align-items-center gap-2 fs-6" id="mapViewerModalLabel">
-            <i class="ph ph-image text-primary fs-5"></i> <span id="modalMapTitle">Visualização de Mapa</span>
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title fw-semibold d-flex align-items-center gap-2 fs-6">
+            <i class="ph ph-image text-primary fs-5"></i>
+            <span id="modalMapTitle">Visualização de Mapa</span>
+            <span id="modalMapCounter" class="badge text-bg-secondary fw-normal ms-1"></span>
           </h5>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
         </div>
-        <div class="modal-body p-2 bg-secondary-subtle text-center">
-          <img id="modalMapImage" src="" class="img-fluid rounded shadow-sm" alt="Mapa Expandido" style="max-height: 85vh; object-fit: contain;">
+
+        <div class="modal-body p-0">
+          <div id="mapViewport" class="map-viewport" aria-label="Mapa ampliado">
+            <img id="modalMapImage" src="" alt="Mapa expandido" draggable="false" class="loading">
+            <div id="viewerError" class="viewer-error" hidden>Não foi possível carregar a imagem.</div>
+
+            <button type="button" id="viewerPrev" class="viewer-nav viewer-prev" aria-label="Mapa anterior" title="Anterior (←)"><i class="ph ph-caret-left"></i></button>
+            <button type="button" id="viewerNext" class="viewer-nav viewer-next" aria-label="Próximo mapa" title="Próximo (→)"><i class="ph ph-caret-right"></i></button>
+
+            <div class="viewer-tools">
+              <button type="button" id="zoomOut" aria-label="Diminuir" title="Diminuir (-)"><i class="ph ph-minus"></i></button>
+              <span id="zoomLabel" class="viewer-zoom-label">100%</span>
+              <button type="button" id="zoomIn" aria-label="Aumentar" title="Aumentar (+)"><i class="ph ph-plus"></i></button>
+              <button type="button" id="zoomFit" aria-label="Ajustar à tela" title="Ajustar à tela (0)"><i class="ph ph-frame-corners"></i></button>
+              <button type="button" id="viewerFullscreen" aria-label="Tela cheia" title="Tela cheia (F)"><i class="ph ph-arrows-out"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer bg-white">
+          <div class="d-flex gap-2 ms-auto">
+            <a id="modalOpenTab" href="#" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
+              <i class="ph ph-arrow-square-out"></i> Abrir em nova aba
+            </a>
+            <button type="button" id="modalDownload" class="btn btn-sm btn-primary d-inline-flex align-items-center gap-1">
+              <i class="ph ph-download-simple"></i> Baixar imagem
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -235,15 +263,7 @@
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- Script para Controle do Modal -->
-  <script>
-    function openMapModal(title, imageSrc) {
-      document.getElementById('modalMapTitle').innerText = title;
-      document.getElementById('modalMapImage').src = imageSrc;
-
-      const mapModal = new bootstrap.Modal(document.getElementById('mapViewerModal'));
-      mapModal.show();
-    }
-  </script>
+  <!-- Visualizador de mapas -->
+  <script src="js/main.js"></script>
 </body>
 </html>

@@ -13,7 +13,8 @@ document.addEventListener("DOMContentLoaded", function () {
       municipios: { label: 'Município',          icon: 'ph-map-pin', color: '#475569', bg: '#e2e8f0' },
       acudes:     { label: 'Açude',              icon: 'ph-drop',    color: '#0284c7', bg: '#e0f2fe' },
       bacias:     { label: 'Bacia hidrográfica', icon: 'ph-polygon', color: '#16a34a', bg: '#dcfce7' },
-      rios:       { label: 'Rio',                icon: 'ph-waves',   color: '#0891b2', bg: '#cffafe' }
+      rios:       { label: 'Rio',                icon: 'ph-waves',   color: '#0891b2', bg: '#cffafe' },
+      pocos:      { label: 'Poço',               icon: 'ph-drop-half-bottom', color: '#b45309', bg: '#fef3c7' }
     };
 
     const offcanvasEl = document.getElementById('attributeOffcanvas');
@@ -94,16 +95,19 @@ document.addEventListener("DOMContentLoaded", function () {
       return false;
     }
 
-    // açudes cujo centro está dentro de um município/bacia
-    function acudesDentro(areaLayer) {
-      if (!geojsonAcudes || !areaLayer.getBounds || !areaLayer.feature) return [];
+    // feições de um grupo (açudes, poços…) cujo centro está dentro de um município/bacia
+    function feicoesDentro(areaLayer, grupo) {
+      if (!grupo || !areaLayer.getBounds || !areaLayer.feature) return [];
       const bounds = areaLayer.getBounds();
       const geom = areaLayer.feature.geometry;
-      return geojsonAcudes.getLayers().filter(function (l) {
+      return grupo.getLayers().filter(function (l) {
         const c = featureCenter(l);
         return c && bounds.contains(c) && pointInGeometry(c.lng, c.lat, geom);
       });
     }
+
+    function acudesDentro(areaLayer) { return feicoesDentro(areaLayer, geojsonAcudes); }
+    function pocosDentro(areaLayer)  { return feicoesDentro(areaLayer, geojsonPocos); }
 
     // município onde está o centro do açude
     function municipioDoAcude(acudeLayer) {
@@ -124,7 +128,7 @@ document.addEventListener("DOMContentLoaded", function () {
       clearHighlight();
       if (!layer || !layer.feature) return;
       const ponto = function (f, ll, cor, w) {
-        return L.circleMarker(ll, { pane: 'highlightPane', radius: 10, color: cor, weight: w, fill: false, interactive: false });
+        return L.circleMarker(ll, { pane: 'highlightPane', radius: 15, color: cor, weight: w, fill: false, interactive: false });
       };
       const casing = L.geoJSON(layer.feature, {
         pane: 'highlightPane', interactive: false,
@@ -143,7 +147,10 @@ document.addEventListener("DOMContentLoaded", function () {
     function focusOnFeature(layer) {
       const opts = { paddingTopLeft: [40, 40], paddingBottomRight: [PANEL_WIDTH + 40, 40], maxZoom: 14 };
       if (layer.getBounds && layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), opts);
-      else if (layer.getLatLng) map.setView(layer.getLatLng(), 14);
+      else if (layer.getLatLng) {
+        const ll = layer.getLatLng();
+        map.fitBounds(L.latLngBounds([ll, ll]), { paddingTopLeft: [40, 40], paddingBottomRight: [PANEL_WIDTH + 40, 40], maxZoom: 15 });
+      }
     }
 
     // se a feição clicada ficou sob a ficha, desloca o mapa para a área livre
@@ -200,8 +207,28 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
 
+      if (layer && (tipo === 'municipios' || tipo === 'bacias') && geojsonPocos) {
+        const lp = pocosDentro(layer).sort(function (a, b) {
+          return (Number(b.feature.properties.q_m3h) || 0) - (Number(a.feature.properties.q_m3h) || 0);
+        });
+        relatedHtml += '<div class="related-title">' + (tipo === 'municipios' ? 'Poços neste município' : 'Poços nesta bacia') +
+          ' <span class="related-count">' + lp.length + '</span></div>';
+        if (lp.length) {
+          lp.slice(0, 5).forEach(function (l) {
+            const p = l.feature.properties || {};
+            const vz = fmtNum(p.q_m3h, 1);
+            relatedHtml += itemHtml(l, 'ph-drop-half-bottom', 'Poço ' + p.fid + (p.proprietario ? ' · ' + p.proprietario : ''), vz ? vz + ' m³/h' : '');
+          });
+          if (lp.length > 5) {
+            relatedHtml += '<div class="small text-muted px-1 pt-2">Mostrando os 5 de maior vazão. Veja todos na tabela de atributos (camada Poços).</div>';
+          }
+        } else {
+          relatedHtml += '<div class="small text-muted px-1">Nenhum poço cadastrado.</div>';
+        }
+      }
+
       let mun = null;
-      if (layer && tipo === 'acudes') {
+      if (layer && (tipo === 'acudes' || tipo === 'pocos')) {
         mun = municipioDoAcude(layer);
         if (mun) {
           const mp = mun.feature.properties || {};
@@ -457,6 +484,7 @@ document.addEventListener("DOMContentLoaded", function () {
     map.createPane("baciasPane").style.zIndex = 450;
     map.createPane("riosPane").style.zIndex = 500;
     map.createPane("acudesPane").style.zIndex = 550;
+    map.createPane("pocosPane").style.zIndex = 560;
     const highlightPane = map.createPane("highlightPane");
     highlightPane.style.zIndex = 650;
     highlightPane.style.pointerEvents = "none";
@@ -465,11 +493,14 @@ document.addEventListener("DOMContentLoaded", function () {
     const layerAcudes = L.layerGroup();
     const layerBacias = L.layerGroup();
     const layerRios = L.layerGroup();
+    const layerPocos = L.layerGroup();
 
     let geojsonMunicipios = null;
     let geojsonBacias = null;
     let geojsonRios = null;
     let geojsonAcudes = null;
+    let geojsonPocos = null;
+    let clusterPocos = null;
 
     let currentMunicipiosOpacity = 0.15;
 
@@ -504,6 +535,7 @@ document.addEventListener("DOMContentLoaded", function () {
         case 'acudes': return geojsonAcudes;
         case 'bacias': return geojsonBacias;
         case 'rios': return geojsonRios;
+        case 'pocos': return geojsonPocos;
         default: return null;
       }
     }
@@ -673,6 +705,75 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // -------------------------------------------------------------
+    // 4B. CAMADA DE POÇOS (marcadores, agrupados quando há muitos juntos)
+    // -------------------------------------------------------------
+    if (typeof pocos !== "undefined") {
+      const pocoIcon = L.divIcon({
+        className: 'poco-marker',
+        html: '<span><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M12 2.5c3.2 4.2 6 7.2 6 11a6 6 0 0 1-12 0c0-3.8 2.8-6.8 6-11z" fill="#ffffff"/></svg></span>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+
+      const fmt1 = function (v) {
+        return (v === null || v === undefined || v === '') ? null : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+      };
+
+      geojsonPocos = L.geoJSON(pocos, {
+        pointToLayer: function (feature, latlng) {
+          return L.marker(latlng, { icon: pocoIcon, pane: "pocosPane", riseOnHover: true });
+        },
+        onEachFeature: function (feature, layer) {
+          const props = feature.properties || {};
+          layer.bindTooltip('Poço ' + props.fid + (props.municipio ? ' · ' + props.municipio : ''), { direction: 'top', offset: [0, -10] });
+
+          layer.on('click', function () {
+            if (map.pm && map.pm.globalDrawModeEnabled()) return;
+
+            const dt = /^\d{4}-\d{2}-\d{2}$/.test(props.data_perfuracao || '') ? props.data_perfuracao.split('-').reverse().join('/') : pick(props, ['data_perfuracao']);
+            const prof = fmt1(props.profundidade);
+            const vazao = fmt1(props.q_m3h);
+
+            showFeatureDetails('Nº ' + props.fid, "pocos", {
+              "Município": pick(props, ['municipio']),
+              "Microrregião": pick(props, ['microregiao']),
+              "Mesorregião": pick(props, ['mesoregiao']),
+              "Proprietário": pick(props, ['proprietario']),
+              "Órgão": pick(props, ['orgao']),
+              "Equipamento": pick(props, ['equipamento']),
+              "Profundidade": prof ? prof + " m" : null,
+              "Vazão": vazao ? vazao + " m³/h" : null,
+              "Data de perfuração": dt
+            }, { layer: layer });
+
+            sincronizarTabelaComMapa(geojsonPocos, feature);
+          });
+        }
+      });
+
+      if (typeof L.markerClusterGroup === 'function') {
+        clusterPocos = L.markerClusterGroup({
+          clusterPane: "pocosPane",
+          maxClusterRadius: 45,
+          disableClusteringAtZoom: 13,
+          showCoverageOnHover: false,
+          chunkedLoading: true,
+          iconCreateFunction: function (cluster) {
+            const n = cluster.getChildCount();
+            const t = n < 10 ? 's' : (n < 100 ? 'm' : 'l');
+            const tam = { s: 32, m: 38, l: 46 }[t];
+            return L.divIcon({ html: '<span>' + n + '</span>', className: 'poco-cluster poco-cluster-' + t, iconSize: L.point(tam, tam) });
+          }
+        });
+        clusterPocos.addLayer(geojsonPocos);
+        clusterPocos.addTo(layerPocos);
+      } else {
+        geojsonPocos.addTo(layerPocos);
+      }
+      // a camada começa desligada: o usuário liga em "Camadas → Poços"
+    }
+
+    // -------------------------------------------------------------
     // 5. CAMADA DE BACIAS HIDROGRÁFICAS
     // -------------------------------------------------------------
     if (typeof bacias !== "undefined") {
@@ -788,6 +889,11 @@ document.addEventListener("DOMContentLoaded", function () {
         hasLayer = true;
       }
 
+      if (map.hasLayer(layerPocos)) {
+        html += '<div class="legend-item"><span class="legend-color" style="background:#d97706; border:2px solid #ffffff; box-shadow:0 0 0 1px #d97706; border-radius:50%;"></span> Poços</div>';
+        hasLayer = true;
+      }
+
       if (map.hasLayer(layerBacias)) {
         html += '<div class="mt-2 mb-1 fw-bold text-muted" style="font-size:11px; text-transform:uppercase;">Bacias Hidrográficas</div>';
         const listaBacias = [
@@ -826,6 +932,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const chkAcu = document.getElementById('checkAcudes');
     const chkBac = document.getElementById('checkBacias');
     const chkRio = document.getElementById('checkRios');
+    const chkPoc = document.getElementById('checkPocos');
 
     if (chkMun) {
       chkMun.addEventListener('change', function () {
@@ -851,6 +958,13 @@ document.addEventListener("DOMContentLoaded", function () {
     if (chkRio) {
       chkRio.addEventListener('change', function () {
         this.checked ? layerRios.addTo(map) : map.removeLayer(layerRios);
+        updateLegend();
+      });
+    }
+
+    if (chkPoc) {
+      chkPoc.addEventListener('change', function () {
+        this.checked ? layerPocos.addTo(map) : map.removeLayer(layerPocos);
         updateLegend();
       });
     }
@@ -890,6 +1004,16 @@ document.addEventListener("DOMContentLoaded", function () {
         const opVal = parseFloat(this.value);
         if (valOpBac) valOpBac.textContent = Math.round(opVal * 100) + '%';
         geojsonBacias.setStyle({ fillOpacity: opVal, opacity: opVal });
+      });
+    }
+
+    const rangeOpPoc = document.getElementById('rangeOpPoc');
+    const valOpPoc = document.getElementById('valOpPoc');
+    if (rangeOpPoc) {
+      rangeOpPoc.addEventListener('input', function () {
+        const opVal = parseFloat(this.value);
+        if (valOpPoc) valOpPoc.textContent = Math.round(opVal * 100) + '%';
+        map.getPane('pocosPane').style.opacity = opVal;
       });
     }
 
@@ -1115,8 +1239,6 @@ document.addEventListener("DOMContentLoaded", function () {
     titleEl.textContent = m.title;
     counterEl.textContent = (index + 1) + ' / ' + mapas.length;
     linkTab.href = m.src;
-    linkDown.href = m.src;
-    linkDown.setAttribute('download', m.src.split('/').pop());
     loadImage(m.src);
 
     // pré-carrega o vizinho para a troca ficar instantânea
@@ -1147,6 +1269,71 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 
+  // ---------- baixar imagem (direto, sem abrir aba) ----------
+  function salvarBlob(blob, nome) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nome;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+  }
+
+  linkDown.addEventListener('click', function () {
+    const src = mapas[index].src;
+    const nome = src.split('/').pop();
+    linkDown.disabled = true;
+    fetch(src)
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+      .then(function (b) { salvarBlob(b, nome); })
+      .catch(function () {
+        // Página aberta direto do disco (file://): o navegador bloqueia a leitura do arquivo.
+        // Em servidor (Live Server, hospedagem) o caminho acima funciona.
+        const a = document.createElement('a');
+        a.href = src; a.download = nome; a.target = '_blank'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+      })
+      .then(function () { linkDown.disabled = false; });
+  });
+
+  // ---------- tela cheia ----------
+  const fsBtn = document.getElementById('viewerFullscreen');
+  const fsAlvo = modalEl.querySelector('.modal-content');
+  const fsAtual = function () { return document.fullscreenElement || document.webkitFullscreenElement; };
+
+  function alternarTelaCheia() {
+    if (!fsBtn || fsBtn.hidden) return;
+    if (fsAtual()) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      const req = fsAlvo.requestFullscreen || fsAlvo.webkitRequestFullscreen;
+      const p = req.call(fsAlvo);
+      if (p && p.catch) p.catch(function () {});
+    }
+  }
+
+  function aoMudarTelaCheia() {
+    const ativa = !!fsAtual();
+    if (fsBtn) {
+      fsBtn.querySelector('i').className = 'ph ' + (ativa ? 'ph-arrows-in' : 'ph-arrows-out');
+      fsBtn.title = ativa ? 'Sair da tela cheia (F)' : 'Tela cheia (F)';
+      fsBtn.setAttribute('aria-label', fsBtn.title);
+    }
+    setTimeout(function () { if (atFit) fitToView(); else apply(); }, 60);
+  }
+
+  if (fsBtn) {
+    if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) fsBtn.hidden = true;
+    fsBtn.addEventListener('click', alternarTelaCheia);
+  }
+  document.addEventListener('fullscreenchange', aoMudarTelaCheia);
+  document.addEventListener('webkitfullscreenchange', aoMudarTelaCheia);
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    if (fsAtual()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  });
+
   // ---------- botões ----------
   document.getElementById('viewerPrev').addEventListener('click', function () { show(index - 1); });
   document.getElementById('viewerNext').addEventListener('click', function () { show(index + 1); });
@@ -1167,6 +1354,7 @@ document.addEventListener("DOMContentLoaded", function () {
     else if (e.key === '+' || e.key === '=') zoomCenter(1.5);
     else if (e.key === '-') zoomCenter(1 / 1.5);
     else if (e.key === '0') fitToView();
+    else if (e.key === 'f' || e.key === 'F') alternarTelaCheia();
   });
 
   // ---------- roda do mouse ----------
@@ -1228,68 +1416,92 @@ document.addEventListener("DOMContentLoaded", function () {
 // =============================================================
 // PÁGINA: DOWNLOADS (downloads.html)
 // =============================================================
-// Downloads: lista de camadas com vários formatos, metadados e "baixar tudo".
-// Para adicionar/remover um formato ou camada, edite apenas as listas abaixo.
 document.addEventListener("DOMContentLoaded", function () {
-  // Pacote com todas as camadas (gerado por você, por ex. no QGIS, e salvo em dados/)
-  const ARQUIVO_TUDO = 'dados/geoportal-todas-camadas.zip';
+  const container = document.getElementById('dlItems');
+  if (!container) return;
 
-  const FORMATOS = {
-    geojson: { nome: 'GeoJSON',    desc: 'Web, QGIS e Leaflet',                icone: 'ph-file-code' },
-    shp:     { nome: 'Shapefile',  desc: 'ZIP com .shp, .dbf, .shx e .prj',    icone: 'ph-file-zip'  },
-    gpkg:    { nome: 'GeoPackage', desc: 'Arquivo único, padrão aberto OGC',   icone: 'ph-database'  },
-    csv:     { nome: 'CSV',        desc: 'Somente a tabela de atributos',      icone: 'ph-file-csv'  }
+  // Todos os arquivos são gerados no navegador a partir dos dados já carregados
+  // (dados/*.js). Não é preciso criar nem hospedar arquivos extras.
+  // Bibliotecas auxiliares só são baixadas quando o formato é usado.
+  const CDN = {
+    jszip: 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
+    sql:   'https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/sql-wasm.js',
+    sqlDir:'https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/'
   };
 
-  // `dados` devolve o objeto GeoJSON já carregado pelos arquivos dados/*.js
+  const FORMATOS = {
+    geojson: { nome: 'GeoJSON',    desc: 'Web, QGIS e Leaflet',                    icone: 'ph-file-code' },
+    shp:     { nome: 'Shapefile',  desc: 'ZIP com .shp, .shx, .dbf, .prj e .cpg',  icone: 'ph-file-zip'  },
+    gpkg:    { nome: 'GeoPackage', desc: 'Arquivo único, padrão aberto OGC',       icone: 'ph-database'  },
+    csv:     { nome: 'CSV',        desc: 'Tabela de atributos (separador ;)',      icone: 'ph-file-csv'  }
+  };
+
+  // `dados` devolve o GeoJSON já carregado pelos arquivos dados/*.js
+  // `crs` é o sistema de referência real dos dados (usado no .prj e no GeoPackage)
   const CAMADAS = [
     {
-      titulo: 'Limites Municipais da Paraíba',
+      id: 'municipios', titulo: 'Limites Municipais da Paraíba',
       desc: 'Divisão territorial oficial dos 223 municípios com código IBGE.',
       fonte: 'IBGE (2023)', icone: 'ph-map-pin', cor: 'primary', crs: 'EPSG:4326',
-      dados: function () { return typeof municipios !== 'undefined' ? municipios : null; },
-      arquivos: { geojson: 'dados/municipios.geojson', shp: 'dados/municipios.zip', gpkg: 'dados/municipios.gpkg', csv: 'dados/municipios.csv' }
+      dados: function () { return typeof municipios !== 'undefined' ? municipios : null; }
     },
     {
-      titulo: 'Bacias Hidrográficas',
+      id: 'bacias', titulo: 'Bacias Hidrográficas',
       desc: 'Polígonos das bacias e sub-bacias hidrográficas estaduais.',
       fonte: 'AESA (2022)', icone: 'ph-polygon', cor: 'success', crs: 'EPSG:4326',
-      dados: function () { return typeof bacias !== 'undefined' ? bacias : null; },
-      arquivos: { geojson: 'dados/bacias.geojson', shp: 'dados/bacias.zip', gpkg: 'dados/bacias.gpkg', csv: 'dados/bacias.csv' }
+      dados: function () { return typeof bacias !== 'undefined' ? bacias : null; }
     },
     {
-      titulo: 'Açudes e Reservatórios',
+      id: 'acudes', titulo: 'Açudes e Reservatórios',
       desc: "Localização e capacidade de acumulação dos corpos d'água.",
       fonte: 'AESA / ANA', icone: 'ph-drop', cor: 'info', crs: 'EPSG:4326',
-      dados: function () { return typeof acudes !== 'undefined' ? acudes : null; },
-      arquivos: { geojson: 'dados/acudes.geojson', shp: 'dados/acudes.zip', gpkg: 'dados/acudes.gpkg', csv: 'dados/acudes.csv' }
+      dados: function () { return typeof acudes !== 'undefined' ? acudes : null; }
     },
     {
-      titulo: 'Rede Hidrográfica (Rios)',
+      id: 'pocos', titulo: 'Poços',
+      desc: 'Poços cadastrados com proprietário, órgão, profundidade, vazão e equipamento.',
+      fonte: '', icone: 'ph-drop-half-bottom', cor: 'amber', crs: 'EPSG:4326', // preencha "fonte" com a origem dos dados
+      dados: function () { return typeof pocos !== 'undefined' ? pocos : null; }
+    },
+    {
+      id: 'rios', titulo: 'Rede Hidrográfica (Rios)',
       desc: "Eixos e cursos d'água dos rios principais e afluentes.",
       fonte: 'AESA / CPRM', icone: 'ph-waves', cor: 'primary', crs: 'EPSG:4326',
-      dados: function () { return typeof rios !== 'undefined' ? rios : null; },
-      arquivos: { geojson: 'dados/rios.geojson', shp: 'dados/rios.zip', gpkg: 'dados/rios.gpkg', csv: 'dados/rios.csv' }
+      dados: function () { return typeof rios !== 'undefined' ? rios : null; }
     }
   ];
 
+  // Definições dos sistemas de referência suportados (.prj do Shapefile e GeoPackage)
+  const SRS = {
+    4326: {
+      nome: 'WGS 84',
+      prj: 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]',
+      wkt: 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]'
+    },
+    4674: {
+      nome: 'SIRGAS 2000',
+      prj: 'GEOGCS["GCS_SIRGAS_2000",DATUM["D_SIRGAS_2000",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]',
+      wkt: 'GEOGCS["SIRGAS 2000",DATUM["Sistema_de_Referencia_Geocentrico_para_las_AmericaS_2000",SPHEROID["GRS 1980",6378137,298.257222101,AUTHORITY["EPSG","7019"]],TOWGS84[0,0,0,0,0,0,0],AUTHORITY["EPSG","6674"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4674"]]'
+    }
+  };
+
   // ---------- utilitários ----------
+  const enc = new TextEncoder();
+
   function esc(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
 
-  function tamanho(bytes) {
-    if (bytes === null || bytes === undefined) return '';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes / 1024).toFixed(0) + ' KB';
-    return (bytes / 1048576).toFixed(1).replace('.', ',') + ' MB';
+  function epsgDe(camada) {
+    const n = Number(String(camada.crs).split(':')[1]);
+    return SRS[n] ? n : 4326;
   }
 
   function geometria(dados) {
-    const f = dados && dados.features && dados.features[0];
-    const t = f && f.geometry && f.geometry.type;
+    const f = dados && dados.features && dados.features.find(function (x) { return x.geometry; });
+    const t = f && f.geometry.type;
     if (!t) return null;
     if (t.indexOf('Polygon') >= 0) return { rotulo: 'Polígonos', icone: 'ph-polygon' };
     if (t.indexOf('Line') >= 0)    return { rotulo: 'Linhas',    icone: 'ph-line-segment' };
@@ -1297,47 +1509,529 @@ document.addEventListener("DOMContentLoaded", function () {
     return null;
   }
 
-  // HEAD no arquivo: devolve { ok: true|false|null, size, date }.
-  // null = não foi possível verificar (ex.: página aberta direto do disco).
-  function sondar(url) {
-    return fetch(url, { method: 'HEAD' }).then(function (r) {
-      if (!r.ok) return { ok: false };
-      const len = r.headers.get('content-length');
-      const lm = r.headers.get('last-modified');
-      return { ok: true, size: len ? Number(len) : null, date: lm ? new Date(lm) : null };
-    }).catch(function () { return { ok: null }; });
+  function carregarScript(url) {
+    return new Promise(function (resolve, reject) {
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('Não foi possível carregar uma biblioteca necessária. Verifique a conexão com a internet.')); };
+      document.head.appendChild(s);
+    });
   }
 
-  function marcarIndisponivel(el) {
-    el.classList.add('disabled');
-    el.setAttribute('aria-disabled', 'true');
-    el.removeAttribute('href');
-    el.title = 'Arquivo não encontrado no servidor';
+  function garantirJSZip() {
+    if (window.JSZip) return Promise.resolve();
+    return carregarScript(CDN.jszip);
   }
 
-  // ---------- montagem ----------
-  const container = document.getElementById('dlItems');
-  if (!container) return;
+  function garantirSql() {
+    if (window.initSqlJs) return Promise.resolve();
+    return carregarScript(CDN.sql);
+  }
 
-  CAMADAS.forEach(function (c, i) {
-    const geo = geometria(c.dados());
+  function salvarBlob(blob, nome) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nome;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+  }
+
+  function pausa() { return new Promise(function (r) { setTimeout(r, 0); }); }
+
+  // ---------- atributos ----------
+  function chavesDe(features) {
+    const ordem = [], vistas = {};
+    features.forEach(function (f) {
+      Object.keys(f.properties || {}).forEach(function (k) {
+        if (!vistas[k]) { vistas[k] = true; ordem.push(k); }
+      });
+    });
+    return ordem;
+  }
+
+  function valorTexto(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+
+  // ---------- CSV ----------
+  function gerarCsv(features) {
+    const chaves = chavesDe(features);
+    const celula = function (v) {
+      const t = valorTexto(v);
+      return /[;"\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    };
+    const linhas = [chaves.map(celula).join(';')];
+    features.forEach(function (f) {
+      linhas.push(chaves.map(function (k) { return celula((f.properties || {})[k]); }).join(';'));
+    });
+    return '\ufeff' + linhas.join('\r\n') + '\r\n'; // BOM: o Excel reconhece os acentos
+  }
+
+  // ---------- Shapefile ----------
+  function familiaDe(features) {
+    let fam = null;
+    for (let i = 0; i < features.length; i++) {
+      const g = features[i].geometry;
+      if (!g) continue;
+      let f = null;
+      if (g.type.indexOf('Polygon') >= 0) f = 'polygon';
+      else if (g.type.indexOf('LineString') >= 0) f = 'line';
+      else if (g.type === 'MultiPoint') f = 'multipoint';
+      else if (g.type === 'Point') f = 'point';
+      if (!f) continue;
+      if (!fam) fam = f;
+      else if (fam === 'point' && f === 'multipoint') fam = 'multipoint';
+    }
+    return fam;
+  }
+
+  // área com sinal: > 0 = sentido horário
+  function sentidoHorario(anel) {
+    let s = 0;
+    for (let i = 0; i < anel.length - 1; i++) s += (anel[i + 1][0] - anel[i][0]) * (anel[i + 1][1] + anel[i][1]);
+    return s > 0;
+  }
+
+  // Shapefile: anel externo horário, furos anti-horários
+  function orientar(anel, externo) {
+    return sentidoHorario(anel) === externo ? anel : anel.slice().reverse();
+  }
+
+  function partesShp(geom, fam) {
+    if (!geom) return null;
+    const t = geom.type, c = geom.coordinates;
+    if (fam === 'polygon') {
+      const polys = t === 'Polygon' ? [c] : (t === 'MultiPolygon' ? c : null);
+      if (!polys) return null;
+      const aneis = [];
+      polys.forEach(function (p) { p.forEach(function (r, i) { aneis.push(orientar(r, i === 0)); }); });
+      return aneis;
+    }
+    if (fam === 'line') return t === 'LineString' ? [c] : (t === 'MultiLineString' ? c : null);
+    if (fam === 'point') return t === 'Point' ? [c] : null;
+    if (fam === 'multipoint') return t === 'Point' ? [c] : (t === 'MultiPoint' ? c : null);
+    return null;
+  }
+
+  function gerarShp(features, fam) {
+    const TIPO = { polygon: 5, line: 3, point: 1, multipoint: 8 }[fam];
+    const registros = features.map(function (f) { return partesShp(f.geometry, fam); });
+
+    const nPts = function (partes) {
+      if (fam === 'multipoint') return partes.length;
+      return partes.reduce(function (s, p) { return s + p.length; }, 0);
+    };
+    const tamConteudo = function (partes) {
+      if (!partes) return 4;
+      if (fam === 'point') return 20;
+      if (fam === 'multipoint') return 4 + 32 + 4 + 16 * nPts(partes);
+      return 4 + 32 + 4 + 4 + 4 * partes.length + 16 * nPts(partes);
+    };
+
+    let total = 100;
+    registros.forEach(function (p) { total += 8 + tamConteudo(p); });
+    const shp = new DataView(new ArrayBuffer(total));
+    const shx = new DataView(new ArrayBuffer(100 + 8 * registros.length));
+
+    let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
+    const alcance = function (x, y) {
+      if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+      if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+    };
+
+    let o = 100;
+    registros.forEach(function (partes, i) {
+      const conteudo = tamConteudo(partes);
+      shx.setInt32(100 + 8 * i, o / 2, false);
+      shx.setInt32(100 + 8 * i + 4, conteudo / 2, false);
+      shp.setInt32(o, i + 1, false);
+      shp.setInt32(o + 4, conteudo / 2, false);
+      o += 8;
+
+      if (!partes) { shp.setInt32(o, 0, true); o += 4; return; }
+      shp.setInt32(o, TIPO, true);
+
+      if (fam === 'point') {
+        shp.setFloat64(o + 4, partes[0][0], true);
+        shp.setFloat64(o + 12, partes[0][1], true);
+        alcance(partes[0][0], partes[0][1]);
+        o += 20;
+        return;
+      }
+
+      let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      const todos = fam === 'multipoint' ? partes : [].concat.apply([], partes);
+      todos.forEach(function (p) {
+        if (p[0] < bx0) bx0 = p[0]; if (p[0] > bx1) bx1 = p[0];
+        if (p[1] < by0) by0 = p[1]; if (p[1] > by1) by1 = p[1];
+        alcance(p[0], p[1]);
+      });
+      shp.setFloat64(o + 4, bx0, true);
+      shp.setFloat64(o + 12, by0, true);
+      shp.setFloat64(o + 20, bx1, true);
+      shp.setFloat64(o + 28, by1, true);
+      let p = o + 36;
+      if (fam === 'multipoint') {
+        shp.setInt32(p, partes.length, true); p += 4;
+      } else {
+        shp.setInt32(p, partes.length, true);
+        shp.setInt32(p + 4, todos.length, true);
+        p += 8;
+        let ini = 0;
+        partes.forEach(function (parte) { shp.setInt32(p, ini, true); p += 4; ini += parte.length; });
+      }
+      todos.forEach(function (pt) { shp.setFloat64(p, pt[0], true); shp.setFloat64(p + 8, pt[1], true); p += 16; });
+      o += conteudo;
+    });
+
+    if (xmin === Infinity) { xmin = ymin = xmax = ymax = 0; }
+    [[shp, total], [shx, 100 + 8 * registros.length]].forEach(function (par) {
+      const dv = par[0];
+      dv.setInt32(0, 9994, false);
+      dv.setInt32(24, par[1] / 2, false);
+      dv.setInt32(28, 1000, true);
+      dv.setInt32(32, TIPO, true);
+      dv.setFloat64(36, xmin, true);
+      dv.setFloat64(44, ymin, true);
+      dv.setFloat64(52, xmax, true);
+      dv.setFloat64(60, ymax, true);
+    });
+
+    return { shp: new Uint8Array(shp.buffer), shx: new Uint8Array(shx.buffer) };
+  }
+
+  function cortarBytes(texto, max) {
+    let s = texto;
+    while (enc.encode(s).length > max) s = s.slice(0, -1);
+    return s;
+  }
+
+  function gerarDbf(features) {
+    const chaves = chavesDe(features);
+
+    // nomes de campo: ASCII, até 10 caracteres, únicos
+    const usados = {};
+    const campos = chaves.map(function (k) {
+      let base = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_]/g, '_').slice(0, 10) || 'CAMPO';
+      let nome = base, n = 1;
+      while (usados[nome.toUpperCase()]) { n++; nome = base.slice(0, 10 - String(n).length) + n; }
+      usados[nome.toUpperCase()] = true;
+
+      const valores = features.map(function (f) { return (f.properties || {})[k]; });
+      const presentes = valores.filter(function (v) { return v !== null && v !== undefined && v !== ''; });
+      const numerico = presentes.length > 0 && presentes.every(function (v) { return typeof v === 'number' && isFinite(v); });
+
+      if (numerico) {
+        let dec = 0;
+        presentes.forEach(function (v) { const d = (String(v).split('.')[1] || '').replace(/e.*/i, '').length; if (d > dec) dec = Math.min(d, 10); });
+        let larg = 1;
+        presentes.forEach(function (v) { larg = Math.max(larg, v.toFixed(dec).length); });
+        if (larg <= 19) return { chave: k, nome: nome, tipo: 'N', larg: larg, dec: dec };
+      }
+      let larg = 1;
+      valores.forEach(function (v) { larg = Math.max(larg, enc.encode(valorTexto(v)).length); });
+      return { chave: k, nome: nome, tipo: 'C', larg: Math.min(larg, 254), dec: 0 };
+    });
+
+    const tamReg = 1 + campos.reduce(function (s, c) { return s + c.larg; }, 0);
+    const tamCab = 32 + 32 * campos.length + 1;
+    const buf = new Uint8Array(tamCab + tamReg * features.length + 1);
+    const dv = new DataView(buf.buffer);
+    const hoje = new Date();
+    buf[0] = 0x03; buf[1] = hoje.getFullYear() - 1900; buf[2] = hoje.getMonth() + 1; buf[3] = hoje.getDate();
+    dv.setUint32(4, features.length, true);
+    dv.setUint16(8, tamCab, true);
+    dv.setUint16(10, tamReg, true);
+
+    campos.forEach(function (c, i) {
+      const p = 32 + 32 * i;
+      for (let j = 0; j < c.nome.length; j++) buf[p + j] = c.nome.charCodeAt(j);
+      buf[p + 11] = c.tipo.charCodeAt(0);
+      buf[p + 16] = c.larg;
+      buf[p + 17] = c.dec;
+    });
+    buf[32 + 32 * campos.length] = 0x0D;
+
+    features.forEach(function (f, r) {
+      let p = tamCab + r * tamReg;
+      buf[p++] = 0x20;
+      campos.forEach(function (c) {
+        const v = (f.properties || {})[c.chave];
+        const vazio = v === null || v === undefined || v === '';
+        let bytes;
+        if (c.tipo === 'N') {
+          const t = vazio ? '' : v.toFixed(c.dec);
+          bytes = enc.encode(t.padStart(c.larg, ' '));
+        } else {
+          const b = enc.encode(cortarBytes(valorTexto(v), c.larg));
+          bytes = new Uint8Array(c.larg).fill(0x20);
+          bytes.set(b, 0);
+        }
+        buf.set(bytes.subarray(0, c.larg), p);
+        p += c.larg;
+      });
+    });
+    buf[buf.length - 1] = 0x1A;
+    return buf;
+  }
+
+  // devolve a lista de arquivos do Shapefile (sem compactar)
+  function arquivosShapefile(camada, features) {
+    const fam = familiaDe(features);
+    if (!fam) throw new Error('A camada não tem geometrias para exportar.');
+    const srs = SRS[epsgDe(camada)];
+    const g = gerarShp(features, fam);
+    return [
+      { nome: camada.id + '.shp', dados: g.shp },
+      { nome: camada.id + '.shx', dados: g.shx },
+      { nome: camada.id + '.dbf', dados: gerarDbf(features) },
+      { nome: camada.id + '.prj', dados: enc.encode(srs.prj) },
+      { nome: camada.id + '.cpg', dados: enc.encode('UTF-8') }
+    ];
+  }
+
+  // ---------- GeoPackage ----------
+  function alvoGpkg(fam) {
+    return { polygon: 'MULTIPOLYGON', line: 'MULTILINESTRING', point: 'POINT', multipoint: 'MULTIPOINT' }[fam];
+  }
+
+  // converte a geometria para o tipo único da tabela
+  function normalizarGeom(geom, alvo) {
+    if (!geom) return null;
+    const t = geom.type, c = geom.coordinates;
+    if (alvo === 'MULTIPOLYGON') return t === 'Polygon' ? [c] : (t === 'MultiPolygon' ? c : null);
+    if (alvo === 'MULTILINESTRING') return t === 'LineString' ? [c] : (t === 'MultiLineString' ? c : null);
+    if (alvo === 'MULTIPOINT') return t === 'Point' ? [c] : (t === 'MultiPoint' ? c : null);
+    if (alvo === 'POINT') return t === 'Point' ? c : null;
+    return null;
+  }
+
+  function wkbTamanho(g, alvo) {
+    if (alvo === 'POINT') return 21;
+    if (alvo === 'MULTIPOINT') return 9 + 21 * g.length;
+    if (alvo === 'MULTILINESTRING') return 9 + g.reduce(function (s, l) { return s + 9 + 16 * l.length; }, 0);
+    return 9 + g.reduce(function (s, p) {
+      return s + 9 + p.reduce(function (a, r) { return a + 4 + 16 * r.length; }, 0);
+    }, 0);
+  }
+
+  function blobGpkg(g, alvo, srsId) {
+    const flat = alvo === 'POINT' ? [g] : (alvo === 'MULTIPOINT' ? g :
+      (alvo === 'MULTILINESTRING' ? [].concat.apply([], g) : [].concat.apply([], [].concat.apply([], g))));
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    flat.forEach(function (p) {
+      if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+      if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+    });
+
+    const buf = new Uint8Array(8 + 32 + wkbTamanho(g, alvo));
+    const dv = new DataView(buf.buffer);
+    buf[0] = 0x47; buf[1] = 0x50; buf[2] = 0; buf[3] = 0x03; // 'GP', versão 0, little-endian + envelope XY
+    dv.setInt32(4, srsId, true);
+    dv.setFloat64(8, x0, true); dv.setFloat64(16, x1, true);
+    dv.setFloat64(24, y0, true); dv.setFloat64(32, y1, true);
+
+    let o = 40;
+    const cab = function (tipo) { dv.setUint8(o, 1); dv.setUint32(o + 1, tipo, true); o += 5; };
+    const pt = function (p) { dv.setFloat64(o, p[0], true); dv.setFloat64(o + 8, p[1], true); o += 16; };
+    const linha = function (pts) { dv.setUint32(o, pts.length, true); o += 4; pts.forEach(pt); };
+
+    if (alvo === 'POINT') { cab(1); pt(g); }
+    else if (alvo === 'MULTIPOINT') { cab(4); dv.setUint32(o, g.length, true); o += 4; g.forEach(function (p) { cab(1); pt(p); }); }
+    else if (alvo === 'MULTILINESTRING') { cab(5); dv.setUint32(o, g.length, true); o += 4; g.forEach(function (l) { cab(2); linha(l); }); }
+    else {
+      cab(6); dv.setUint32(o, g.length, true); o += 4;
+      g.forEach(function (poli) {
+        cab(3); dv.setUint32(o, poli.length, true); o += 4;
+        poli.forEach(linha);
+      });
+    }
+    return { blob: buf, x0: x0, y0: y0, x1: x1, y1: y1 };
+  }
+
+  function aspas(nome) { return '"' + String(nome).replace(/"/g, '""') + '"'; }
+
+  async function gerarGpkg(camada, features) {
+    const fam = familiaDe(features);
+    if (!fam) throw new Error('A camada não tem geometrias para exportar.');
+    await garantirSql();
+    const SQL = await window.initSqlJs({ locateFile: function (f) { return CDN.sqlDir + f; } });
+
+    const alvo = alvoGpkg(fam);
+    const srsId = epsgDe(camada);
+    const srs = SRS[srsId];
+    const tabela = camada.id;
+
+    // colunas de atributo
+    const usados = { fid: true, geom: true };
+    const cols = chavesDe(features).map(function (k) {
+      let nome = k, n = 1;
+      while (usados[nome.toLowerCase()]) { n++; nome = k + '_' + n; }
+      usados[nome.toLowerCase()] = true;
+      const vals = features.map(function (f) { return (f.properties || {})[k]; }).filter(function (v) { return v !== null && v !== undefined && v !== ''; });
+      let tipo = 'TEXT';
+      if (vals.length && vals.every(function (v) { return typeof v === 'number' && isFinite(v); })) {
+        tipo = vals.every(Number.isInteger) ? 'INTEGER' : 'REAL';
+      } else if (vals.length && vals.every(function (v) { return typeof v === 'boolean'; })) {
+        tipo = 'BOOLEAN';
+      }
+      return { chave: k, nome: nome, tipo: tipo };
+    });
+
+    const db = new SQL.Database();
+    db.run('PRAGMA application_id = 1196444487; PRAGMA user_version = 10300;');
+    db.run('CREATE TABLE gpkg_spatial_ref_sys (srs_name TEXT NOT NULL, srs_id INTEGER PRIMARY KEY, organization TEXT NOT NULL, organization_coordsys_id INTEGER NOT NULL, definition TEXT NOT NULL, description TEXT);');
+    db.run("INSERT INTO gpkg_spatial_ref_sys VALUES ('Undefined cartesian SRS', -1, 'NONE', -1, 'undefined', 'undefined cartesian coordinate reference system');");
+    db.run("INSERT INTO gpkg_spatial_ref_sys VALUES ('Undefined geographic SRS', 0, 'NONE', 0, 'undefined', 'undefined geographic coordinate reference system');");
+    db.run('INSERT INTO gpkg_spatial_ref_sys VALUES (?, ?, ?, ?, ?, ?);', [srs.nome, srsId, 'EPSG', srsId, srs.wkt, null]);
+
+    db.run("CREATE TABLE gpkg_contents (table_name TEXT NOT NULL PRIMARY KEY, data_type TEXT NOT NULL, identifier TEXT UNIQUE, description TEXT DEFAULT '', last_change DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE, srs_id INTEGER, CONSTRAINT fk_gc_r_srs_id FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id));");
+    db.run('CREATE TABLE gpkg_geometry_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL, geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL, m TINYINT NOT NULL, CONSTRAINT pk_geom_cols PRIMARY KEY (table_name, column_name), CONSTRAINT uk_gc_table_name UNIQUE (table_name), CONSTRAINT fk_gc_tn FOREIGN KEY (table_name) REFERENCES gpkg_contents(table_name), CONSTRAINT fk_gc_srs FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys (srs_id));');
+
+    db.run('CREATE TABLE ' + aspas(tabela) + ' (fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, geom ' + alvo + cols.map(function (c) { return ', ' + aspas(c.nome) + ' ' + c.tipo; }).join('') + ');');
+
+    const stmt = db.prepare('INSERT INTO ' + aspas(tabela) + ' (geom' + cols.map(function (c) { return ', ' + aspas(c.nome); }).join('') + ') VALUES (?' + cols.map(function () { return ', ?'; }).join('') + ');');
+    let X0 = Infinity, Y0 = Infinity, X1 = -Infinity, Y1 = -Infinity;
+    db.run('BEGIN;');
+    features.forEach(function (f) {
+      const g = normalizarGeom(f.geometry, alvo);
+      let blob = null;
+      if (g && (alvo === 'POINT' || g.length)) {
+        const r = blobGpkg(g, alvo, srsId);
+        blob = r.blob;
+        if (r.x0 < X0) X0 = r.x0; if (r.y0 < Y0) Y0 = r.y0;
+        if (r.x1 > X1) X1 = r.x1; if (r.y1 > Y1) Y1 = r.y1;
+      }
+      const vals = cols.map(function (c) {
+        const v = (f.properties || {})[c.chave];
+        if (v === null || v === undefined || v === '') return null;
+        if (c.tipo === 'BOOLEAN') return v ? 1 : 0;
+        if (c.tipo === 'TEXT') return valorTexto(v);
+        return v;
+      });
+      stmt.run([blob].concat(vals));
+    });
+    db.run('COMMIT;');
+    stmt.free();
+
+    if (X0 === Infinity) { X0 = Y0 = X1 = Y1 = 0; }
+    db.run("INSERT INTO gpkg_contents (table_name, data_type, identifier, description, min_x, min_y, max_x, max_y, srs_id) VALUES (?, 'features', ?, ?, ?, ?, ?, ?, ?);",
+      [tabela, tabela, camada.titulo, X0, Y0, X1, Y1, srsId]);
+    db.run("INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', ?, ?, 0, 0);", [tabela, alvo, srsId]);
+
+    const bytes = db.export();
+    db.close();
+    return bytes;
+  }
+
+  // ---------- geração por formato ----------
+  function featuresDe(camada) {
+    const d = camada.dados();
+    if (!d || !d.features || !d.features.length) throw new Error('Os dados de "' + camada.titulo + '" não foram carregados.');
+    return d.features;
+  }
+
+  // lista de arquivos de uma camada em um formato: [{ nome, dados }]
+  async function arquivosDe(camada, fmt) {
+    const features = featuresDe(camada);
+    if (fmt === 'geojson') return [{ nome: camada.id + '.geojson', dados: enc.encode(JSON.stringify(camada.dados())) }];
+    if (fmt === 'csv')     return [{ nome: camada.id + '.csv', dados: enc.encode(gerarCsv(features)) }];
+    if (fmt === 'shp')     return arquivosShapefile(camada, features);
+    if (fmt === 'gpkg')    return [{ nome: camada.id + '.gpkg', dados: await gerarGpkg(camada, features) }];
+    throw new Error('Formato desconhecido.');
+  }
+
+  async function baixarFormato(camada, fmt) {
+    const arquivos = await arquivosDe(camada, fmt);
+    if (fmt === 'shp') {
+      await garantirJSZip();
+      const zip = new window.JSZip();
+      arquivos.forEach(function (a) { zip.file(a.nome, a.dados); });
+      const bytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+      salvarBlob(new Blob([bytes], { type: 'application/zip' }), camada.id + '_shapefile.zip');
+      return;
+    }
+    const tipos = { geojson: 'application/geo+json', csv: 'text/csv;charset=utf-8', gpkg: 'application/geopackage+sqlite3' };
+    salvarBlob(new Blob([arquivos[0].dados], { type: tipos[fmt] }), arquivos[0].nome);
+  }
+
+  async function baixarTudo(progresso) {
+    await garantirJSZip();
+    const zip = new window.JSZip();
+    const leia = ['GeoPortal - pacote de camadas', '', 'Conteúdo (uma pasta por camada):'];
+    const formatos = ['geojson', 'shp', 'gpkg', 'csv'];
+    for (let i = 0; i < CAMADAS.length; i++) {
+      const c = CAMADAS[i];
+      const pasta = zip.folder(c.id);
+      for (let j = 0; j < formatos.length; j++) {
+        progresso(c.titulo + ' · ' + FORMATOS[formatos[j]].nome, i * formatos.length + j, CAMADAS.length * formatos.length);
+        await pausa();
+        const arqs = await arquivosDe(c, formatos[j]);
+        const alvo = formatos[j] === 'shp' ? pasta.folder('shapefile') : pasta;
+        arqs.forEach(function (a) { alvo.file(a.nome, a.dados); });
+      }
+      leia.push('- ' + c.id + ': ' + c.titulo + (c.fonte ? ' | fonte: ' + c.fonte : '') + ' | ' + c.crs);
+    }
+    leia.push('', 'Formatos: GeoJSON, Shapefile (pasta shapefile/), GeoPackage e CSV (separador ;, UTF-8).');
+    zip.file('LEIA-ME.txt', leia.join('\r\n'));
+    progresso('Compactando…', 1, 1);
+    await pausa();
+    const bytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+    salvarBlob(new Blob([bytes], { type: 'application/zip' }), 'geoportal-todas-camadas.zip');
+  }
+
+  // ---------- interface ----------
+  const status = document.createElement('div');
+  status.className = 'dl-status';
+  status.setAttribute('aria-live', 'polite');
+  container.parentNode.appendChild(status);
+
+  let ocupado = false;
+  function mostrar(msg, erro) {
+    status.className = 'dl-status' + (erro ? ' text-danger' : '') + (msg ? ' visible' : '');
+    status.textContent = msg || '';
+  }
+
+  async function executar(rotulo, tarefa, botoes) {
+    if (ocupado) return;
+    ocupado = true;
+    botoes.forEach(function (b) { b.classList.add('disabled'); b.setAttribute('aria-disabled', 'true'); });
+    mostrar('Gerando ' + rotulo + '…');
+    await pausa();
+    try {
+      await tarefa();
+      mostrar('');
+    } catch (e) {
+      console.error(e);
+      mostrar('Não foi possível gerar ' + rotulo + ': ' + (e && e.message ? e.message : e), true);
+    } finally {
+      ocupado = false;
+      botoes.forEach(function (b) { b.classList.remove('disabled'); b.removeAttribute('aria-disabled'); });
+    }
+  }
+
+  CAMADAS.forEach(function (c) {
     const dados = c.dados();
+    const geo = geometria(dados);
     const n = dados && dados.features ? dados.features.length : null;
 
     let chips = '';
     if (geo) chips += '<span class="dl-chip"><i class="ph ' + geo.icone + '"></i>' + geo.rotulo + '</span>';
     if (n !== null) chips += '<span class="dl-chip"><i class="ph ph-list-numbers"></i>' + n.toLocaleString('pt-BR') + (n === 1 ? ' feição' : ' feições') + '</span>';
     chips += '<span class="dl-chip"><i class="ph ph-globe-hemisphere-west"></i>' + esc(c.crs) + '</span>';
-    chips += '<span class="dl-chip" data-meta="atualizado" hidden></span>';
 
     let itens = '';
-    Object.keys(c.arquivos).forEach(function (fmt) {
+    Object.keys(FORMATOS).forEach(function (fmt) {
       const f = FORMATOS[fmt];
-      const nomeArq = c.arquivos[fmt].split('/').pop();
-      itens += '<li><a class="dropdown-item dl-format" data-fmt="' + fmt + '" href="' + esc(c.arquivos[fmt]) + '" download="' + esc(nomeArq) + '">' +
+      itens += '<li><button type="button" class="dropdown-item dl-format" data-fmt="' + fmt + '">' +
         '<i class="ph ' + f.icone + '"></i>' +
-        '<span class="dl-format-text"><strong>' + f.nome + '</strong><small>' + f.desc + '</small></span>' +
-        '<small class="dl-format-size"></small></a></li>';
+        '<span class="dl-format-text"><strong>' + f.nome + '</strong><small>' + f.desc + '</small></span></button></li>';
     });
 
     const row = document.createElement('div');
@@ -1349,27 +2043,20 @@ document.addEventListener("DOMContentLoaded", function () {
           '<strong class="d-block text-dark">' + esc(c.titulo) + '</strong>' +
           '<small class="text-muted d-block">' + esc(c.desc) + '</small>' +
           '<div class="dl-meta">' + chips + '</div>' +
-          '<small class="text-muted">Fonte: ' + esc(c.fonte) + '</small>' +
+          (c.fonte ? '<small class="text-muted">Fonte: ' + esc(c.fonte) + '</small>' : '') +
         '</div>' +
       '</div>' +
       '<div class="dl-action"><div class="dropdown">' +
-        '<button class="btn btn-primary btn-sm dropdown-toggle d-inline-flex align-items-center justify-content-center gap-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">' +
+        '<button class="btn btn-primary btn-sm dropdown-toggle d-inline-flex align-items-center justify-content-center gap-1" type="button" data-bs-toggle="dropdown" aria-expanded="false"' + (n ? '' : ' disabled') + '>' +
           '<i class="ph ph-download-simple"></i> Baixar</button>' +
         '<ul class="dropdown-menu dropdown-menu-end shadow-sm">' + itens + '</ul>' +
       '</div></div>';
     container.appendChild(row);
 
-    // tamanho e data de cada arquivo (quando o servidor informa)
-    Object.keys(c.arquivos).forEach(function (fmt) {
-      const link = row.querySelector('.dl-format[data-fmt="' + fmt + '"]');
-      sondar(c.arquivos[fmt]).then(function (r) {
-        if (r.ok === false) { marcarIndisponivel(link); link.querySelector('.dl-format-size').textContent = 'indisponível'; return; }
-        if (r.ok && r.size !== null) link.querySelector('.dl-format-size').textContent = tamanho(r.size);
-        if (r.ok && fmt === 'geojson' && r.date) {
-          const chip = row.querySelector('[data-meta="atualizado"]');
-          chip.innerHTML = '<i class="ph ph-calendar-blank"></i>Atualizado em ' + r.date.toLocaleDateString('pt-BR');
-          chip.hidden = false;
-        }
+    row.querySelectorAll('.dl-format').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const fmt = btn.dataset.fmt;
+        executar(FORMATOS[fmt].nome + ' de ' + c.titulo, function () { return baixarFormato(c, fmt); }, [btn]);
       });
     });
   });
@@ -1377,11 +2064,17 @@ document.addEventListener("DOMContentLoaded", function () {
   // ---------- baixar tudo ----------
   const btnTudo = document.getElementById('btnBaixarTudo');
   if (btnTudo) {
-    btnTudo.href = ARQUIVO_TUDO;
-    btnTudo.setAttribute('download', ARQUIVO_TUDO.split('/').pop());
-    sondar(ARQUIVO_TUDO).then(function (r) {
-      if (r.ok === false) { marcarIndisponivel(btnTudo); btnTudo.title = 'Pacote ainda não disponível'; return; }
-      if (r.ok && r.size !== null) document.getElementById('tudoSize').textContent = '(' + tamanho(r.size) + ')';
+    const rotuloOriginal = btnTudo.innerHTML;
+    btnTudo.addEventListener('click', function () {
+      if (ocupado) return;
+      btnTudo.disabled = true;
+      const fim = function () { btnTudo.disabled = false; btnTudo.innerHTML = rotuloOriginal; };
+      executar('o pacote com todas as camadas', function () {
+        return baixarTudo(function (txt, i, total) {
+          btnTudo.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + Math.round((i / total) * 100) + '%';
+          mostrar('Gerando ' + txt + '…');
+        });
+      }, [btnTudo]).then(fim, fim);
     });
   }
 });
