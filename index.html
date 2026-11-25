@@ -278,15 +278,36 @@
                   </div>
                 </div>
 
-                <button type="button" id="btnLocalizarCoord" class="btn btn-primary btn-sm w-100 d-flex align-items-center justify-content-center gap-1 mt-2">
-                  <i class="ph ph-crosshair fs-6"></i> Localizar Ponto
-                </button>
+                <div class="d-flex gap-2 mt-2">
+                  <button type="button" id="btnLocalizarCoord" class="btn btn-primary btn-sm flex-fill d-flex align-items-center justify-content-center gap-1">
+                    <i class="ph ph-crosshair fs-6"></i> Localizar Ponto
+                  </button>
+                  <button type="button" id="btnLimparCoord" class="btn btn-outline-danger btn-sm d-flex align-items-center justify-content-center gap-1" hidden title="Remover ponto do mapa">
+                    <i class="ph ph-trash"></i> Limpar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
         </div>
       </div>
+    </div>
+
+    <!-- Barra de Busca Rápida Flutuante no Mapa (Expansível) -->
+    <div id="mapSearchContainer" class="map-search-container collapsed">
+      <div class="map-search-bar">
+        <button type="button" id="mapSearchToggle" class="map-search-toggle" aria-label="Buscar no mapa" title="Buscar município, açude, bacia...">
+          <i class="ph ph-magnifying-glass"></i>
+        </button>
+        <div class="map-search-input-wrapper">
+          <input type="search" id="mapSearchInput" class="map-search-input" placeholder="Buscar município, açude, bacia..." autocomplete="off" aria-label="Buscar feição no mapa">
+          <button class="map-search-clear" type="button" id="mapSearchClear" hidden title="Limpar busca">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+      </div>
+      <div id="mapSearchResults" class="map-search-results" hidden></div>
     </div>
 
     <!-- Container do Mapa -->
@@ -435,7 +456,7 @@
   <script src="dados/acudes.js"></script>
   <script src="dados/bacias.js"></script>
   <script src="dados/municipios.js" charset="utf-8"></script>
-  <script src="dados/rios.js"></script>
+  <!-- dados/rios.js é carregado sob demanda (lazy loading) ao ligar a camada, poupando 6 MB no arranque inicial -->
   <script src="dados/pocos_pb.js"></script>
   <script src="dados/modelo_qpt.js"></script>
   <script src="js/main.js"></script>

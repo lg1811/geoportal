@@ -47,6 +47,17 @@
  *   - Layout de impressão (.qpt do QGIS): seções 22 a 24.
  *   - Passos do guia de primeira visita: seção 27 (PASSOS_GUIA).
  *   - Formatos e camadas de download: início de iniciarDownloads().
+ *
+ * GUIA: COMO ANEXAR UMA NOVA CAMADA DE DADOS (.JS)
+ *   1. Formato do arquivo: salve em dados/nome_da_camada.js com a estrutura:
+ *        var nome_da_camada = { "type": "FeatureCollection", "features": [ ... ] };
+ *      (Dica: abra no navegador otimizador.html para reduzir casas decimais e economizar 60% do tamanho).
+ *   2. Registro visual:
+ *      - Em index.html: inclua o switch HTML no accordion de camadas (#secCamadas).
+ *      - Em main.js (seção 1): adicione as cores e ícone no objeto TIPOS.
+ *      - Em main.js (seção 2): defina os campos amigáveis no objeto CAMPOS.
+ *      - Em main.js (seção 8 e 10): inclua o nome da camada em TIPOS_CAMADA e GRUPOS_CAMADA.
+ *      - Carregue via L.geoJSON com as opções: { pmIgnore: true, pane: "vetoresPane", renderer: rendererVetores }.
  */
 
 // =============================================================
@@ -80,6 +91,196 @@ function salvarBlob(blob, nome) {
   a.click();
   a.remove();
   setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+}
+
+// Converte uma feição GeoJSON individual para KML (compatível com Google Earth / QGIS)
+function featureToKml(feature, titulo) {
+  if (!feature || !feature.geometry) return null;
+  const geom = feature.geometry;
+
+  function parCoord(c) {
+    return c[0] + ',' + c[1] + ',' + (c[2] || 0);
+  }
+
+  function listaCoords(arr) {
+    return arr.map(parCoord).join(' ');
+  }
+
+  function anelLinear(anel) {
+    return '<LinearRing><coordinates>' + listaCoords(anel) + '</coordinates></LinearRing>';
+  }
+
+  function poligonoKml(coords) {
+    let out = '<Polygon><outerBoundaryIs>' + anelLinear(coords[0]) + '</outerBoundaryIs>';
+    for (let i = 1; i < coords.length; i++) {
+      out += '<innerBoundaryIs>' + anelLinear(coords[i]) + '</innerBoundaryIs>';
+    }
+    return out + '</Polygon>';
+  }
+
+  let geomXml = '';
+  if (geom.type === 'Point') {
+    geomXml = '<Point><coordinates>' + parCoord(geom.coordinates) + '</coordinates></Point>';
+  } else if (geom.type === 'LineString') {
+    geomXml = '<LineString><coordinates>' + listaCoords(geom.coordinates) + '</coordinates></LineString>';
+  } else if (geom.type === 'Polygon') {
+    geomXml = poligonoKml(geom.coordinates);
+  } else if (geom.type === 'MultiPolygon') {
+    geomXml = '<MultiGeometry>' + geom.coordinates.map(poligonoKml).join('') + '</MultiGeometry>';
+  } else if (geom.type === 'MultiLineString') {
+    geomXml = '<MultiGeometry>' + geom.coordinates.map(function (c) {
+      return '<LineString><coordinates>' + listaCoords(c) + '</coordinates></LineString>';
+    }).join('') + '</MultiGeometry>';
+  } else if (geom.type === 'MultiPoint') {
+    geomXml = '<MultiGeometry>' + geom.coordinates.map(function (c) {
+      return '<Point><coordinates>' + parCoord(c) + '</coordinates></Point>';
+    }).join('') + '</MultiGeometry>';
+  }
+
+  let extData = '';
+  if (feature.properties) {
+    extData = '<ExtendedData>' + Object.keys(feature.properties).map(function (k) {
+      const v = feature.properties[k];
+      if (v === null || v === undefined) return '';
+      return '<Data name="' + escapeHtml(k) + '"><value>' + escapeHtml(v) + '</value></Data>';
+    }).join('') + '</ExtendedData>';
+  }
+
+  const nomeFeicao = escapeHtml(titulo || 'Feição');
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<kml xmlns="http://www.opengis.net/kml/2.2">\n' +
+    '  <Document>\n' +
+    '    <name>' + nomeFeicao + '</name>\n' +
+    '    <Placemark>\n' +
+    '      <name>' + nomeFeicao + '</name>\n' +
+    '      ' + extData + '\n' +
+    '      ' + geomXml + '\n' +
+    '    </Placemark>\n' +
+    '  </Document>\n' +
+    '</kml>';
+}
+
+// Converte uma feição individual para um arquivo GeoPackage OGC (.gpkg)
+function featureToGpkg(feature, tipo, nomeArquivo) {
+  if (!feature || !feature.geometry) throw new Error('Feição sem geometria válida.');
+  return carregarScriptExterno('https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/sql-wasm.js', 'initSqlJs').then(function () {
+    return window.initSqlJs({ locateFile: function (f) { return 'https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/' + f; } });
+  }).then(function (SQL) {
+    const geom = feature.geometry;
+    let fam = 'polygon';
+    if (geom.type.indexOf('Line') >= 0) fam = 'line';
+    else if (geom.type === 'Point') fam = 'point';
+    else if (geom.type === 'MultiPoint') fam = 'multipoint';
+
+    const alvo = { polygon: 'MULTIPOLYGON', line: 'MULTILINESTRING', point: 'POINT', multipoint: 'MULTIPOINT' }[fam];
+    const srsId = 4326;
+    const srsNome = 'WGS 84';
+    const srsWkt = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]';
+
+    const tabela = (tipo || 'feicao').replace(/[^a-zA-Z0-9_]/g, '_') || 'feicao';
+    const props = feature.properties || {};
+
+    function normalizar(g, target) {
+      if (!g) return null;
+      const t = g.type, c = g.coordinates;
+      if (target === 'MULTIPOLYGON') return t === 'Polygon' ? [c] : (t === 'MultiPolygon' ? c : null);
+      if (target === 'MULTILINESTRING') return t === 'LineString' ? [c] : (t === 'MultiLineString' ? c : null);
+      if (target === 'MULTIPOINT') return t === 'Point' ? [c] : (t === 'MultiPoint' ? c : null);
+      if (target === 'POINT') return t === 'Point' ? c : null;
+      return null;
+    }
+
+    function wkbTamanho(g, target) {
+      if (target === 'POINT') return 21;
+      if (target === 'MULTIPOINT') return 9 + 21 * g.length;
+      if (target === 'MULTILINESTRING') return 9 + g.reduce(function (s, l) { return s + 9 + 16 * l.length; }, 0);
+      return 9 + g.reduce(function (s, p) {
+        return s + 9 + p.reduce(function (a, r) { return a + 4 + 16 * r.length; }, 0);
+      }, 0);
+    }
+
+    function criarBlobGpkg(g, target) {
+      const flat = target === 'POINT' ? [g] : (target === 'MULTIPOINT' ? g :
+        (target === 'MULTILINESTRING' ? [].concat.apply([], g) : [].concat.apply([], [].concat.apply([], g))));
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      flat.forEach(function (p) {
+        if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+        if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+      });
+
+      const buf = new Uint8Array(8 + 32 + wkbTamanho(g, target));
+      const dv = new DataView(buf.buffer);
+      buf[0] = 0x47; buf[1] = 0x50; buf[2] = 0; buf[3] = 0x03; // 'GP', v0, little-endian + envelope XY
+      dv.setInt32(4, srsId, true);
+      dv.setFloat64(8, x0, true); dv.setFloat64(16, x1, true);
+      dv.setFloat64(24, y0, true); dv.setFloat64(32, y1, true);
+
+      let o = 40;
+      const cab = function (t) { dv.setUint8(o, 1); dv.setUint32(o + 1, t, true); o += 5; };
+      const pt = function (p) { dv.setFloat64(o, p[0], true); dv.setFloat64(o + 8, p[1], true); o += 16; };
+      const linha = function (pts) { dv.setUint32(o, pts.length, true); o += 4; pts.forEach(pt); };
+
+      if (target === 'POINT') { cab(1); pt(g); }
+      else if (target === 'MULTIPOINT') { cab(4); dv.setUint32(o, g.length, true); o += 4; g.forEach(function (p) { cab(1); pt(p); }); }
+      else if (target === 'MULTILINESTRING') { cab(5); dv.setUint32(o, g.length, true); o += 4; g.forEach(function (l) { cab(2); linha(l); }); }
+      else {
+        cab(6); dv.setUint32(o, g.length, true); o += 4;
+        g.forEach(function (poli) {
+          cab(3); dv.setUint32(o, poli.length, true); o += 4;
+          poli.forEach(linha);
+        });
+      }
+      return { blob: buf, x0: x0, y0: y0, x1: x1, y1: y1 };
+    }
+
+    const cols = Object.keys(props).map(function (k) {
+      const val = props[k];
+      let tipoCol = 'TEXT';
+      if (typeof val === 'number') tipoCol = Number.isInteger(val) ? 'INTEGER' : 'REAL';
+      else if (typeof val === 'boolean') tipoCol = 'BOOLEAN';
+      const nomeLimpo = k.replace(/[^a-zA-Z0-9_]/g, '_');
+      return { chave: k, nome: nomeLimpo, tipo: tipoCol };
+    });
+
+    const aspas = function (n) { return '"' + String(n).replace(/"/g, '""') + '"'; };
+
+    const db = new SQL.Database();
+    db.run('PRAGMA application_id = 1196444487; PRAGMA user_version = 10300;');
+    db.run('CREATE TABLE gpkg_spatial_ref_sys (srs_name TEXT NOT NULL, srs_id INTEGER PRIMARY KEY, organization TEXT NOT NULL, organization_coordsys_id INTEGER NOT NULL, definition TEXT NOT NULL, description TEXT);');
+    db.run("INSERT INTO gpkg_spatial_ref_sys VALUES ('Undefined cartesian SRS', -1, 'NONE', -1, 'undefined', 'undefined cartesian coordinate reference system');");
+    db.run("INSERT INTO gpkg_spatial_ref_sys VALUES ('Undefined geographic SRS', 0, 'NONE', 0, 'undefined', 'undefined geographic coordinate reference system');");
+    db.run('INSERT INTO gpkg_spatial_ref_sys VALUES (?, ?, ?, ?, ?, ?);', [srsNome, srsId, 'EPSG', srsId, srsWkt, null]);
+
+    db.run("CREATE TABLE gpkg_contents (table_name TEXT NOT NULL PRIMARY KEY, data_type TEXT NOT NULL, identifier TEXT UNIQUE, description TEXT DEFAULT '', last_change DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE, srs_id INTEGER, CONSTRAINT fk_gc_r_srs_id FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id));");
+    db.run('CREATE TABLE gpkg_geometry_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL, geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL, m TINYINT NOT NULL, CONSTRAINT pk_geom_cols PRIMARY KEY (table_name, column_name), CONSTRAINT uk_gc_table_name UNIQUE (table_name), CONSTRAINT fk_gc_tn FOREIGN KEY (table_name) REFERENCES gpkg_contents(table_name), CONSTRAINT fk_gc_srs FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys (srs_id));');
+
+    const colDefs = cols.length ? (', ' + cols.map(function (c) { return aspas(c.nome) + ' ' + c.tipo; }).join(', ')) : '';
+    db.run('CREATE TABLE ' + aspas(tabela) + ' (fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, geom ' + alvo + colDefs + ');');
+
+    const gNorm = normalizar(geom, alvo);
+    if (!gNorm) throw new Error('Geometria incompatível com formato GeoPackage.');
+    const rBlob = criarBlobGpkg(gNorm, alvo);
+
+    const colNames = cols.length ? (', ' + cols.map(function (c) { return aspas(c.nome); }).join(', ')) : '';
+    const colPlaceholders = cols.length ? (', ' + cols.map(function () { return '?'; }).join(', ')) : '';
+    const stmt = db.prepare('INSERT INTO ' + aspas(tabela) + ' (geom' + colNames + ') VALUES (?' + colPlaceholders + ');');
+    const vals = cols.map(function (c) {
+      const v = props[c.chave];
+      if (v === null || v === undefined || v === '') return null;
+      if (c.tipo === 'BOOLEAN') return v ? 1 : 0;
+      return typeof v === 'object' ? JSON.stringify(v) : v;
+    });
+    stmt.run([rBlob.blob].concat(vals));
+    stmt.free();
+
+    db.run("INSERT INTO gpkg_contents (table_name, data_type, identifier, description, min_x, min_y, max_x, max_y, srs_id) VALUES (?, 'features', ?, ?, ?, ?, ?, ?, ?);",
+      [tabela, tabela, nomeArquivo || tabela, rBlob.x0, rBlob.y0, rBlob.x1, rBlob.y1, srsId]);
+    db.run("INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', ?, ?, 0, 0);", [tabela, alvo, srsId]);
+
+    const bytes = db.export();
+    db.close();
+    return bytes;
+  });
 }
 
 // copia texto para a área de transferência (com plano B para páginas sem HTTPS)
@@ -428,6 +629,51 @@ function iniciarMapa() {
     return false;
   }
 
+  // Índice em cache para consultas ultrarrápidas O(1) de açudes e poços por município
+  let idxAcudesMun = null;
+  let idxPocosMun = null;
+  let idxMunPorNome = null;
+  const cacheBacias = new WeakMap();
+
+  function construirIndicesMunicipios() {
+    if (idxAcudesMun) return;
+    idxAcudesMun = new Map();
+    idxPocosMun = new Map();
+    idxMunPorNome = new Map();
+
+    if (todas.municipios) {
+      todas.municipios.forEach(function (l) {
+        const p = l.feature && l.feature.properties;
+        const nome = p && (p.nome || p.NM_MUN || p.Nome);
+        if (nome) idxMunPorNome.set(normalizarBusca(nome), l);
+      });
+    }
+
+    if (todas.acudes) {
+      todas.acudes.forEach(function (l) {
+        const p = l.feature && l.feature.properties;
+        const mun = p && (p.Municipio || p.municipio || p.NM_MUN);
+        if (mun) {
+          const k = normalizarBusca(mun);
+          if (!idxAcudesMun.has(k)) idxAcudesMun.set(k, []);
+          idxAcudesMun.get(k).push(l);
+        }
+      });
+    }
+
+    if (todas.pocos) {
+      todas.pocos.forEach(function (l) {
+        const p = l.feature && l.feature.properties;
+        const mun = p && (p.municipio || p.Municipio || p.NM_MUN);
+        if (mun) {
+          const k = normalizarBusca(mun);
+          if (!idxPocosMun.has(k)) idxPocosMun.set(k, []);
+          idxPocosMun.get(k).push(l);
+        }
+      });
+    }
+  }
+
   // feições de um grupo (açudes, poços…) cujo centro está dentro de um município/bacia
   function feicoesDentro(areaLayer, lista) {
     if (!lista || !areaLayer.getBounds || !areaLayer.feature) return [];
@@ -439,11 +685,55 @@ function iniciarMapa() {
     });
   }
 
-  function acudesDentro(areaLayer) { return feicoesDentro(areaLayer, todas.acudes); }
-  function pocosDentro(areaLayer)  { return feicoesDentro(areaLayer, todas.pocos); }
+  function acudesDentro(areaLayer) {
+    const p = areaLayer.feature && areaLayer.feature.properties;
+    const nome = p && (p.nome || p.NM_MUN || p.Nome);
+    if (nome) {
+      construirIndicesMunicipios();
+      const list = idxAcudesMun.get(normalizarBusca(nome));
+      if (list) return list;
+    }
+    // Para bacias hidrográficas: utiliza cache em memória para não recalcular a cada clique
+    if (cacheBacias.has(areaLayer)) {
+      const c = cacheBacias.get(areaLayer);
+      if (c.acudes) return c.acudes;
+    }
+    const res = feicoesDentro(areaLayer, todas.acudes);
+    const prev = cacheBacias.get(areaLayer) || {};
+    prev.acudes = res;
+    cacheBacias.set(areaLayer, prev);
+    return res;
+  }
 
-  // município onde está o centro do açude
+  function pocosDentro(areaLayer) {
+    const p = areaLayer.feature && areaLayer.feature.properties;
+    const nome = p && (p.nome || p.NM_MUN || p.Nome);
+    if (nome) {
+      construirIndicesMunicipios();
+      const list = idxPocosMun.get(normalizarBusca(nome));
+      if (list) return list;
+    }
+    // Para bacias hidrográficas: utiliza cache em memória
+    if (cacheBacias.has(areaLayer)) {
+      const c = cacheBacias.get(areaLayer);
+      if (c.pocos) return c.pocos;
+    }
+    const res = feicoesDentro(areaLayer, todas.pocos);
+    const prev = cacheBacias.get(areaLayer) || {};
+    prev.pocos = res;
+    cacheBacias.set(areaLayer, prev);
+    return res;
+  }
+
+  // município onde está o centro do açude (busca O(1) pelo atributo do açude)
   function municipioDoAcude(acudeLayer) {
+    const p = acudeLayer.feature && acudeLayer.feature.properties;
+    const munNome = p && (p.Municipio || p.municipio || p.NM_MUN);
+    if (munNome) {
+      construirIndicesMunicipios();
+      const munLayer = idxMunPorNome.get(normalizarBusca(munNome));
+      if (munLayer) return munLayer;
+    }
     const c = featureCenter(acudeLayer);
     if (!c || !todas.municipios.length) return null;
     return todas.municipios.find(function (l) {
@@ -594,10 +884,12 @@ function iniciarMapa() {
         '<div class="feature-heading"><div class="small fw-semibold" style="color:' + t.texto + ';">' + t.label + '</div>' +
         '<h4 class="h5 fw-bold text-dark mb-0">' + escapeHtml(title) + '</h4></div>' +
       '</div></div>' +
-      (layer ? '<div class="d-flex gap-2 mb-3">' +
+      (layer ? '<div class="d-flex flex-wrap gap-2 mb-3">' +
         botao('zoom', 'ph-magnifying-glass-plus', 'Aproximar', 'Aproximar da feição') +
         botao('table', 'ph-table', 'Na tabela', 'Ver na tabela de atributos') +
         botao('copy', 'ph-copy', 'Coordenadas', 'Copiar coordenadas do centro') +
+        botao('kml', 'ph-globe', 'KML', 'Abrir no Google Earth (KML)') +
+        botao('gpkg', 'ph-database', 'GeoPackage', 'Baixar feição em GeoPackage (GPKG)') +
       '</div>' : '') +
       (infoHtml ? '<div class="ficha-tabs" role="tablist">' +
         '<button type="button" role="tab" aria-selected="' + (abaAtiva === 'info') + '" class="ficha-tab' + (abaAtiva === 'info' ? ' ativo' : '') + '" data-aba="info"><i class="ph ph-chart-pie-slice"></i> Em números</button>' +
@@ -625,6 +917,31 @@ function iniciarMapa() {
         copiarTexto(c.lat.toFixed(6) + ', ' + c.lng.toFixed(6)).then(function () {
           span.textContent = 'Copiado!';
           setTimeout(function () { span.textContent = 'Coordenadas'; }, 1500);
+        });
+      });
+      bind('kml', function () {
+        if (!layer.feature) return;
+        const nomeArquivo = semAcentos(title).toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'feicao';
+        const kml = featureToKml(layer.feature, title);
+        if (!kml) return;
+        const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml;charset=utf-8' });
+        salvarBlob(blob, nomeArquivo + '.kml');
+      });
+      bind('gpkg', function (el) {
+        if (!layer.feature) return;
+        const span = el.querySelector('span');
+        const txtOriginal = span ? span.textContent : 'GeoPackage';
+        if (span) span.textContent = 'Gerando...';
+        const nomeArquivo = semAcentos(title).toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'feicao';
+        featureToGpkg(layer.feature, tipo, nomeArquivo).then(function (bytes) {
+          salvarBlob(new Blob([bytes], { type: 'application/x-sqlite3' }), nomeArquivo + '.gpkg');
+          if (span) span.textContent = 'Baixado!';
+        }).catch(function (err) {
+          console.error(err);
+          alert('Erro ao gerar GeoPackage: ' + (err && err.message ? err.message : err));
+          if (span) span.textContent = txtOriginal;
+        }).finally(function () {
+          setTimeout(function () { if (span) span.textContent = 'GeoPackage'; }, 1800);
         });
       });
     }
@@ -684,7 +1001,8 @@ function iniciarMapa() {
     center: [-7.12, -36.72],
     zoom: 8,
     layers: [googleSat],
-    zoomControl: false
+    zoomControl: false,
+    preferCanvas: true
   });
   L.control.zoom({ position: 'topleft', zoomInTitle: 'Aproximar', zoomOutTitle: 'Afastar' }).addTo(map);
 
@@ -791,6 +1109,76 @@ function iniciarMapa() {
   });
   sincronizarAriaExpanded(painelTabela, 'closed', btnTabela);
 
+  let gpsMarker = null;
+  let gpsCircle = null;
+  let rastreandoGps = false;
+
+  const btnGps = adicionarBotaoFerramenta('Minha Localização (GPS em campo)', 'ph-crosshair', function (btn) {
+    if (!navigator.geolocation) {
+      alert('Geolocalização não é suportada pelo seu navegador.');
+      return;
+    }
+
+    if (rastreandoGps) {
+      rastreandoGps = false;
+      if (gpsMarker) { map.removeLayer(gpsMarker); gpsMarker = null; }
+      if (gpsCircle) { map.removeLayer(gpsCircle); gpsCircle = null; }
+      btn.classList.remove('active');
+      return;
+    }
+
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;border-width:2px;"></span>';
+
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        btn.innerHTML = '<i class="ph ph-crosshair"></i>';
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const acc = Math.round(pos.coords.accuracy);
+
+        if (gpsMarker) map.removeLayer(gpsMarker);
+        if (gpsCircle) map.removeLayer(gpsCircle);
+
+        gpsCircle = L.circle([lat, lng], {
+          radius: acc,
+          color: '#0284c7',
+          fillColor: '#38bdf8',
+          fillOpacity: 0.15,
+          weight: 1.5
+        }).addTo(map);
+
+        gpsMarker = L.circleMarker([lat, lng], {
+          radius: 8,
+          color: '#ffffff',
+          weight: 2.5,
+          fillColor: '#0284c7',
+          fillOpacity: 1
+        }).addTo(map);
+
+        gpsMarker.bindPopup(
+          '<div class="p-1">' +
+            '<div class="fw-bold text-primary mb-1"><i class="ph ph-map-pin"></i> Sua Localização</div>' +
+            '<div class="small"><b>Latitude:</b> ' + lat.toFixed(5) + '<br><b>Longitude:</b> ' + lng.toFixed(5) + '</div>' +
+            '<div class="small text-muted mt-1">Precisão estimada: ±' + acc + ' metros</div>' +
+          '</div>'
+        ).openPopup();
+
+        map.setView([lat, lng], Math.max(map.getZoom(), 14));
+        rastreandoGps = true;
+        btn.classList.add('active');
+      },
+      function (err) {
+        btn.innerHTML = '<i class="ph ph-crosshair"></i>';
+        let msg = 'Erro ao obter localização.';
+        if (err.code === 1) msg = 'Permissão de localização negada pelo usuário no navegador.';
+        else if (err.code === 2) msg = 'Sinal de localização (GPS) indisponível.';
+        else if (err.code === 3) msg = 'Tempo limite esgotado ao buscar sinal de GPS.';
+        alert(msg);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  });
+
   const closeBtn = document.getElementById('closeSidebarBtn');
   if (closeBtn) closeBtn.addEventListener('click', fecharPainelCamadas);
 
@@ -816,6 +1204,15 @@ function iniciarMapa() {
   // 7. FERRAMENTA DE MEDIÇÃO DE DISTÂNCIA (régua)
   // =============================================================
   if (map.pm) {
+    // Desativa snapping global: evita que a régua percorra centenas de milhares
+    // de vértices de municípios, rios e açudes a cada pixel do mouse, eliminando o travamento
+    map.pm.setGlobalOptions({
+      snappable: false,
+      snapDistance: 0,
+      pinning: false,
+      allowSelfIntersection: true
+    });
+
     map.pm.addControls({
       position: 'topright',
       drawMarker: false,
@@ -1236,6 +1633,13 @@ function iniciarMapa() {
 
   if (layerTableSelect) {
     layerTableSelect.addEventListener('change', function () {
+      if (this.value === 'rios' && !geojsonRios) {
+        gisTableBody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Carregando dados da rede hidrográfica…</td></tr>';
+        garantirCamadaRios(function (g) {
+          carregarDadosTabela(g);
+        });
+        return;
+      }
       const activeLayer = getLayerByName(this.value);
       carregarDadosTabela(activeLayer);
     });
@@ -1280,11 +1684,11 @@ function iniciarMapa() {
 
   const simbolosAcudes = L.layerGroup();   // símbolos proporcionais à capacidade
   const circulosPocos = L.layerGroup();    // poços coloridos por tema (sem agrupamento)
-  // camadas com muitos vértices ficam em canvas: milhares de elementos SVG deixam o zoom pesado
+  // camadas com muitos vértices ficam em canvas: milhares de elementos SVG deixam o mapa e medições pesados
   // (rios: 31 mil feições / 417 mil vértices; municípios: 230 mil vértices)
-  // Como a versão antiga: SVG acompanha o zoom animado sem "piscar" (o canvas estica a imagem e redesenha no fim).
-  // Se a camada de rios ficar pesada, troque para true (mais rápido, porém com pequeno "pulo" no zoom).
-  const VETORES_EM_CANVAS = false;
+  // Com canvas ativado, o navegador não cria dezenas de milhares de elementos SVG no DOM,
+  // tornando o carregamento, zoom, arrasto e medição instantâneos e leves.
+  const VETORES_EM_CANVAS = true;
   const rendererVetores = VETORES_EM_CANVAS ? L.canvas({ pane: 'vetoresPane', padding: 0.5 }) : L.svg({ pane: 'vetoresPane' });
   let opacidadePocos = 1;          // opacidade dos poços coloridos (slider da camada)
 
@@ -1337,11 +1741,13 @@ function iniciarMapa() {
   // =============================================================
   if (typeof municipios !== "undefined") {
     geojsonMunicipios = L.geoJSON(municipios, {
+      pmIgnore: true,
       pane: "vetoresPane",
-    renderer: rendererVetores,
-    smoothFactor: 1.5,
+      renderer: rendererVetores,
+      smoothFactor: 1.5,
       style: function (feature) { return getMunStyle(feature); },
       onEachFeature: function (feature, layer) {
+        layer.options.pmIgnore = true;
         layer.on({
           mouseover: function (e) {
             if (medindo()) return;
@@ -1367,11 +1773,13 @@ function iniciarMapa() {
   // =============================================================
   if (typeof acudes !== "undefined") {
     geojsonAcudes = L.geoJSON(acudes, {
+      pmIgnore: true,
       pane: "vetoresPane",
-    renderer: rendererVetores,
-    smoothFactor: 1.5,
+      renderer: rendererVetores,
+      smoothFactor: 1.5,
       style: { color: "#ffffff", weight: 1, fillColor: "#0284c7", fillOpacity: 0.6, opacity: 0.6 },
       onEachFeature: function (feature, layer) {
+        layer.options.pmIgnore = true;
         ligarCliqueFeicao(layer, feature, 'acudes');
       }
     });
@@ -1391,10 +1799,12 @@ function iniciarMapa() {
     });
 
     geojsonPocos = L.geoJSON(pocos, {
+      pmIgnore: true,
       pointToLayer: function (feature, latlng) {
-        return L.marker(latlng, { icon: pocoIcon, pane: "pocosPane", riseOnHover: true, keyboard: false });
+        return L.marker(latlng, { icon: pocoIcon, pane: "pocosPane", riseOnHover: true, keyboard: false, pmIgnore: true });
       },
       onEachFeature: function (feature, layer) {
+        layer.options.pmIgnore = true;
         const props = feature.properties || {};
         layer.bindTooltip(rotuloPoco(props), { direction: 'top', offset: [0, -10] });
         ligarCliqueFeicao(layer, feature, 'pocos');
@@ -1403,9 +1813,10 @@ function iniciarMapa() {
 
     if (typeof L.markerClusterGroup === 'function') {
       clusterPocos = L.markerClusterGroup({
+        pmIgnore: true,
         clusterPane: "pocosPane",
         maxClusterRadius: 45,
-      animate: false,
+        animate: false,
         disableClusteringAtZoom: 13,
         showCoverageOnHover: false,
         chunkedLoading: true,
@@ -1441,14 +1852,16 @@ function iniciarMapa() {
     }
 
     geojsonBacias = L.geoJSON(bacias, {
+      pmIgnore: true,
       pane: "vetoresPane",
-    renderer: rendererVetores,
-    smoothFactor: 1.5,
+      renderer: rendererVetores,
+      smoothFactor: 1.5,
       style: function (feature) {
         const nomeBacia = feature.properties ? feature.properties.Nome : "";
         return { color: getCorBacia(nomeBacia), weight: 2, opacity: 0.9, fillColor: getCorBacia(nomeBacia), fillOpacity: 0.45 };
       },
       onEachFeature: function (feature, layer) {
+        layer.options.pmIgnore = true;
         ligarCliqueFeicao(layer, feature, 'bacias');
       }
     });
@@ -1456,20 +1869,92 @@ function iniciarMapa() {
   }
 
   // =============================================================
-  // 15. CAMADA: RIOS
+  // 15. CAMADA: RIOS (Carregamento sob demanda / Lazy Loading e LOD por Zoom)
   // =============================================================
-  if (typeof rios !== "undefined") {
+  let carregandoRios = false;
+
+  // Ajusta o Nível de Detalhe (LOD) conforme o zoom:
+  // - Em zoom macro do estado (<= 8): exibe apenas rios principais (nomeados ou nu_ordem >= 2)
+  //   evitando sobrecarregar a tela com mais de 30 mil pequenos afluentes em escala estadual.
+  // - Em zoom aproximado (>= 9): renderiza toda a malha hidrográfica detalhada.
+  function aplicarEstiloRiosZoom() {
+    if (!geojsonRios) return;
+    const z = map.getZoom();
+    geojsonRios.setStyle(function (feature) {
+      const p = feature.properties || {};
+      const principal = (p.nu_ordem && p.nu_ordem >= 2) || (p.Nome && p.Nome.trim().length > 0);
+      if (z <= 8 && !principal) {
+        return { opacity: 0, weight: 0 };
+      }
+      return { color: riosColor, weight: z <= 8 ? 1.5 : 2, opacity: 0.8 };
+    });
+  }
+
+  function inicializarGeojsonRios() {
+    if (geojsonRios || typeof rios === "undefined") return;
     geojsonRios = L.geoJSON(rios, {
+      pmIgnore: true,
       pane: "vetoresPane",
-    renderer: rendererVetores,
-    smoothFactor: 2,
-      style: { color: "#0284c7", weight: 2, opacity: 0.8 },
+      renderer: rendererVetores,
+      smoothFactor: 2,
+      style: function (f) {
+        const z = map.getZoom();
+        const p = f.properties || {};
+        const principal = (p.nu_ordem && p.nu_ordem >= 2) || (p.Nome && p.Nome.trim().length > 0);
+        if (z <= 8 && !principal) return { opacity: 0, weight: 0 };
+        return { color: riosColor, weight: z <= 8 ? 1.5 : 2, opacity: 0.8 };
+      },
       onEachFeature: function (feature, layer) {
+        layer.options.pmIgnore = true;
         ligarCliqueFeicao(layer, feature, 'rios');
       }
     });
+    todas.rios = geojsonRios.getLayers().slice();
     geojsonRios.addTo(layerRios);
   }
+
+  function garantirCamadaRios(callback) {
+    if (geojsonRios) {
+      if (callback) callback(geojsonRios);
+      return Promise.resolve(geojsonRios);
+    }
+    if (typeof rios !== "undefined") {
+      inicializarGeojsonRios();
+      if (callback) callback(geojsonRios);
+      return Promise.resolve(geojsonRios);
+    }
+    if (carregandoRios) return Promise.resolve(null);
+    carregandoRios = true;
+
+    const label = document.querySelector('label[for="checkRios"]');
+    const txtOriginal = label ? label.innerHTML : '';
+    if (label) label.innerHTML = 'Rios <span class="spinner-border spinner-border-sm text-primary ms-1" style="width:11px;height:11px;" role="status" aria-hidden="true"></span>';
+
+    return carregarScriptExterno('dados/rios.js', 'rios').then(function () {
+      carregandoRios = false;
+      if (label) label.innerHTML = txtOriginal;
+      inicializarGeojsonRios();
+      if (callback) callback(geojsonRios);
+      return geojsonRios;
+    }).catch(function (err) {
+      carregandoRios = false;
+      if (label) label.innerHTML = txtOriginal;
+      const chk = document.getElementById('checkRios');
+      if (chk) chk.checked = false;
+      console.error('Erro ao carregar dados de rios:', err);
+    });
+  }
+
+  // Se o arquivo rios.js já estiver no ambiente, inicializa imediatamente
+  if (typeof rios !== "undefined") {
+    inicializarGeojsonRios();
+  }
+
+  map.on('zoomend', function () {
+    if (map.hasLayer(layerRios)) {
+      aplicarEstiloRiosZoom();
+    }
+  });
 
   // todas as feições de cada camada (os filtros do mapa só tiram/colocam feições nos grupos)
   todas.municipios = geojsonMunicipios ? geojsonMunicipios.getLayers().slice() : [];
@@ -1626,6 +2111,15 @@ function iniciarMapa() {
     const chk = chkDe(tipo);
     if (!chk) return;
     chk.addEventListener('change', function () {
+      if (tipo === 'rios' && this.checked && !geojsonRios) {
+        garantirCamadaRios(function () {
+          GRUPOS_CAMADA.rios.addTo(map);
+          reordenarVetoriais();
+          esconderHoverMun();
+          updateLegend();
+        });
+        return;
+      }
       this.checked ? GRUPOS_CAMADA[tipo].addTo(map) : map.removeLayer(GRUPOS_CAMADA[tipo]);
       reordenarVetoriais();
       esconderHoverMun();
@@ -2336,6 +2830,13 @@ function iniciarMapa() {
     filtroTipoAtual = tipo;
     if (filtroCamadaSel) filtroCamadaSel.value = tipo;
     if (!filtroCampos) return;
+    if (tipo === 'rios' && !geojsonRios) {
+      filtroCampos.innerHTML = '<div class="text-center py-3 text-muted small"><span class="spinner-border spinner-border-sm me-2"></span>Carregando dados de rios para filtrar…</div>';
+      garantirCamadaRios(function () {
+        renderizarFiltros('rios');
+      });
+      return;
+    }
     const f = filtros[tipo];
     filtroCampos.innerHTML = FILTROS[tipo].map(function (d) {
       const v = f[d.id] === undefined ? '' : String(f[d.id]);
@@ -3613,7 +4114,20 @@ function iniciarMapa() {
   const coordTypeSelect = document.getElementById('coordTypeSelect');
   const coordInputsContainer = document.getElementById('coordInputsContainer');
   const btnLocalizarCoord = document.getElementById('btnLocalizarCoord');
+  const btnLimparCoord = document.getElementById('btnLimparCoord');
   let coordMarker = null;
+
+  function limparMarcadorCoord() {
+    if (coordMarker) {
+      map.removeLayer(coordMarker);
+      coordMarker = null;
+    }
+    if (btnLimparCoord) btnLimparCoord.hidden = true;
+  }
+
+  if (btnLimparCoord) {
+    btnLimparCoord.addEventListener('click', limparMarcadorCoord);
+  }
 
   if (coordTypeSelect && coordInputsContainer) {
     coordTypeSelect.addEventListener('change', function() {
@@ -3704,8 +4218,24 @@ function iniciarMapa() {
         if (dLon < 0 || document.getElementById('lonDeg').value.startsWith('-')) lon = -lon;
       }
       else if (type === 'utm') {
-        alert("Para conversão UTM exata, utilize uma biblioteca auxiliar como 'proj4js' ou 'leaflet.utm'.");
-        return;
+        const eastingInput = (document.getElementById('utmEasting').value || '').replace(',', '.');
+        const northingInput = (document.getElementById('utmNorthing').value || '').replace(',', '.');
+        const zoneInput = (document.getElementById('utmZone').value || '').trim();
+        const hemis = document.getElementById('utmHemisphere').value;
+
+        const easting = parseFloat(eastingInput);
+        const northing = parseFloat(northingInput);
+        const zona = parseInt(zoneInput, 10) || 25;
+        const sul = (hemis === 'S');
+
+        if (isNaN(easting) || isNaN(northing) || isNaN(zona)) {
+          alert("Por favor, preencha os campos Easting (X), Northing (Y) e Zona UTM com valores numéricos válidos.");
+          return;
+        }
+
+        const res = UTM.inverso(easting, northing, zona, sul);
+        lat = res.lat;
+        lon = res.lng;
       }
 
       if (isNaN(lat) || isNaN(lon)) {
@@ -3719,9 +4249,20 @@ function iniciarMapa() {
         map.removeLayer(coordMarker);
       }
 
+      const utmInfo = (type === 'utm') ? `<br><small class="text-muted">UTM: ${document.getElementById('utmEasting').value} E, ${document.getElementById('utmNorthing').value} N (Zona ${document.getElementById('utmZone').value || '25'}${document.getElementById('utmHemisphere').value})</small>` : '';
+
+      const popupHtml = `
+        <div class="p-1">
+          <div class="fw-bold text-dark mb-1"><i class="ph ph-map-pin text-primary"></i> Ponto Localizado</div>
+          <div class="small"><b>Lat:</b> ${lat.toFixed(5)}<br><b>Lon:</b> ${lon.toFixed(5)}${utmInfo}</div>
+        </div>
+      `;
+
       coordMarker = L.marker([lat, lon]).addTo(map)
-        .bindPopup(`<b>Ponto Localizado</b><br>Lat: ${lat.toFixed(5)}<br>Lon: ${lon.toFixed(5)}`)
+        .bindPopup(popupHtml)
         .openPopup();
+
+      if (btnLimparCoord) btnLimparCoord.hidden = false;
     });
   }
 
@@ -3736,28 +4277,40 @@ function iniciarMapa() {
   const PASSOS_GUIA = [
     {
       titulo: 'Bem-vindo ao GeoPortal',
-      texto: 'Este mapa reúne municípios, açudes, bacias, rios e poços da Paraíba. Em cinco passos rápidos você vê como explorar.',
+      texto: 'Este mapa reúne municípios, açudes, bacias, rios e poços da Paraíba. Em passos rápidos você aprende a explorar o mapa, localizar dados e exportar feições.',
       extra: 'Pelo teclado: Tab navega pelos botões, as setas movem o mapa, + e − aproximam e Esc fecha os painéis.',
       alvo: null
     },
     {
-      titulo: 'Ligue as camadas',
-      texto: 'Abra "Gestão de Camadas" para ligar e desligar cada camada, ajustar a opacidade, colorir o mapa por tema e aplicar filtros.',
+      titulo: 'Busca rápida no mapa',
+      texto: 'Clique na lupa abaixo do zoom para expandir a busca. Digite o nome de qualquer município, açude, bacia ou número de poço para localizá-lo com destaque visual instantâneo.',
+      extra: 'Pressione Esc ou clique fora da caixa para recolher a barra a qualquer momento.',
+      alvo: '#mapSearchContainer'
+    },
+    {
+      titulo: 'Ligue e configure as camadas',
+      texto: 'Abra a Gestão de Camadas para ligar feições, ajustar a opacidade, aplicar temas estatísticos e consultar coordenadas (Graus Decimais, DMS e UTM métrico SIRGAS 2000).',
       alvo: '.map-tool-btn[aria-label="Gestão de Camadas"]'
     },
     {
-      titulo: 'Clique numa feição',
-      texto: 'Clique em um município, açude, bacia, rio ou poço. A ficha mostra os dados e, na aba "Em números", gráficos e comparações.',
+      titulo: 'Clique numa feição e exporte',
+      texto: 'Ao clicar em qualquer elemento, a Ficha Técnica lateral exibe seus dados e infográficos. Você pode baixar a geometria individual em GeoPackage (.gpkg) ou abrir no Google Earth (.kml).',
       alvo: '#map'
     },
     {
-      titulo: 'Consulte a tabela de atributos',
-      texto: 'Na tabela você busca, ordena por coluna e exporta os dados em CSV. Pelo teclado, use as setas para percorrer as linhas e Enter para localizar no mapa.',
+      titulo: 'Tabela de atributos e CSV',
+      texto: 'Consulte, ordene e filtre registros tabulares de cada camada. Clicar em uma linha centraliza a feição no mapa, e você pode baixar a tabela completa em CSV.',
       alvo: '.map-tool-btn[aria-label="Abrir Tabela de Atributos"]'
     },
     {
-      titulo: 'Compartilhe o que você viu',
-      texto: 'Gere um link do mapa exatamente como ele está agora, ou exporte uma imagem ou PDF com título e legenda. Para rever este guia, use "Como usar" no topo da página.',
+      titulo: 'Localização em campo e medição',
+      texto: 'Ative o botão de mira (GPS) para acompanhar sua posição exata e raio de precisão em tempo real. Utilize também a régua acima para medir distâncias no terreno.',
+      alvo: '.map-tool-btn[aria-label="Minha Localização (GPS em campo)"]'
+    },
+    {
+      titulo: 'Compartilhe e exporte mapas',
+      texto: 'Gere links diretos com o enquadramento exato, ou exporte mapas em layout A4 pronto para impressão (PDF ou imagem) com título, legenda e escala.',
+      extra: 'Para rever este guia quando quiser, clique em "Como usar" no topo da página ou pressione a tecla ?.',
       alvo: '.map-tool-btn[aria-label="Compartilhar e exportar o mapa"]'
     }
   ];
@@ -3866,6 +4419,222 @@ function iniciarMapa() {
   });
 
   if (!veioDeLink && !guiaJaVisto()) setTimeout(abrirGuia, 900);
+
+  // =============================================================
+  // 28. BARRA DE BUSCA RÁPIDA COM AUTOCOMPLETE NO MAPA (EXPANSÍVEL)
+  // =============================================================
+  function inicializarBuscaRapidaMapa() {
+    const container = document.getElementById('mapSearchContainer');
+    const toggleBtn = document.getElementById('mapSearchToggle');
+    const input = document.getElementById('mapSearchInput');
+    const containerResultados = document.getElementById('mapSearchResults');
+    const btnLimpar = document.getElementById('mapSearchClear');
+    if (!container || !input || !containerResultados) return;
+
+    // Evita que cliques ou rolagem dentro da barra de busca se propaguem para o Leaflet
+    L.DomEvent.disableClickPropagation(container);
+    L.DomEvent.disableScrollPropagation(container);
+
+    let timer = null;
+
+    function expandirBusca() {
+      container.classList.remove('collapsed');
+      setTimeout(function () { input.focus(); }, 60);
+    }
+
+    function recolherBusca() {
+      container.classList.add('collapsed');
+      fecharResultados();
+    }
+
+    function fecharResultados() {
+      containerResultados.innerHTML = '';
+      containerResultados.hidden = true;
+    }
+
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (container.classList.contains('collapsed')) {
+          expandirBusca();
+        } else {
+          if (!input.value.trim()) {
+            recolherBusca();
+          } else {
+            input.focus();
+            executarBusca(input.value);
+          }
+        }
+      });
+    }
+
+    function executarBusca(termo) {
+      const q = semAcentos(termo).toLowerCase().trim();
+      if (q.length < 2) {
+        fecharResultados();
+        return;
+      }
+
+      const resultados = [];
+      const maxResultados = 10;
+
+      // 1. Municípios
+      if (todas.municipios) {
+        for (let i = 0; i < todas.municipios.length; i++) {
+          if (resultados.length >= maxResultados) break;
+          const layer = todas.municipios[i];
+          const p = layer.feature && layer.feature.properties;
+          const nome = p && (p.nome || p.NM_MUN || p.Nome);
+          if (nome && semAcentos(nome).toLowerCase().includes(q)) {
+            resultados.push({
+              titulo: nome,
+              subtitulo: p.NM_RGI ? ('Região: ' + p.NM_RGI) : 'Município da Paraíba',
+              tipo: 'municipios',
+              rotuloTipo: 'Município',
+              badgeBg: '#64748b',
+              badgeColor: '#ffffff',
+              layer: layer
+            });
+          }
+        }
+      }
+
+      // 2. Açudes
+      if (todas.acudes) {
+        for (let i = 0; i < todas.acudes.length; i++) {
+          if (resultados.length >= maxResultados) break;
+          const layer = todas.acudes[i];
+          const p = layer.feature && layer.feature.properties;
+          const nome = p && (p.Nome || p.NOME);
+          if (nome && semAcentos(nome).toLowerCase().includes(q)) {
+            const mun = p.Municipio || p.municipio || '';
+            resultados.push({
+              titulo: nome,
+              subtitulo: mun ? ('Açude em ' + mun) : 'Açude',
+              tipo: 'acudes',
+              rotuloTipo: 'Açude',
+              badgeBg: '#0284c7',
+              badgeColor: '#ffffff',
+              layer: layer
+            });
+          }
+        }
+      }
+
+      // 3. Bacias Hidrográficas
+      if (todas.bacias) {
+        for (let i = 0; i < todas.bacias.length; i++) {
+          if (resultados.length >= maxResultados) break;
+          const layer = todas.bacias[i];
+          const p = layer.feature && layer.feature.properties;
+          const nome = p && (p.Nome || p.nome);
+          if (nome && semAcentos(nome).toLowerCase().includes(q)) {
+            resultados.push({
+              titulo: nome,
+              subtitulo: 'Bacia Hidrográfica',
+              tipo: 'bacias',
+              rotuloTipo: 'Bacia',
+              badgeBg: '#16a34a',
+              badgeColor: '#ffffff',
+              layer: layer
+            });
+          }
+        }
+      }
+
+      // 4. Poços
+      if (todas.pocos) {
+        for (let i = 0; i < todas.pocos.length; i++) {
+          if (resultados.length >= maxResultados) break;
+          const layer = todas.pocos[i];
+          const p = layer.feature && layer.feature.properties;
+          const fidStr = String((p && p.fid) || '');
+          const munStr = (p && (p.municipio || p.Municipio)) || '';
+          if (fidStr.includes(q) || (q.startsWith('poco') && fidStr.includes(q.replace(/\D/g, '')))) {
+            resultados.push({
+              titulo: 'Poço Nº ' + p.fid,
+              subtitulo: munStr ? ('Município: ' + munStr) : 'Poço tubular',
+              tipo: 'pocos',
+              rotuloTipo: 'Poço',
+              badgeBg: '#d97706',
+              badgeColor: '#ffffff',
+              layer: layer
+            });
+          }
+        }
+      }
+
+      if (resultados.length === 0) {
+        containerResultados.innerHTML = '<div class="p-3 text-center text-muted small">Nenhuma feição encontrada para "' + escapeHtml(termo) + '"</div>';
+        containerResultados.hidden = false;
+        return;
+      }
+
+      containerResultados.innerHTML = resultados.map(function (item, idx) {
+        return '<div class="search-result-item" data-idx="' + idx + '">' +
+          '<div class="search-result-text">' +
+            '<div class="search-result-title">' + escapeHtml(item.titulo) + '</div>' +
+            '<div class="search-result-subtitle">' + escapeHtml(item.subtitulo) + '</div>' +
+          '</div>' +
+          '<span class="search-result-badge" style="background:' + item.badgeBg + ';color:' + item.badgeColor + ';">' + item.rotuloTipo + '</span>' +
+        '</div>';
+      }).join('');
+
+      containerResultados.querySelectorAll('.search-result-item').forEach(function (el) {
+        el.addEventListener('click', function () {
+          const item = resultados[Number(el.dataset.idx)];
+          if (!item) return;
+          input.value = item.titulo;
+          if (btnLimpar) btnLimpar.hidden = false;
+          fecharResultados();
+          garantirCamadaLigada(item.tipo);
+          selectLayer(item.layer, true);
+        });
+      });
+
+      containerResultados.hidden = false;
+    }
+
+    input.addEventListener('input', function () {
+      if (btnLimpar) btnLimpar.hidden = !this.value;
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        executarBusca(input.value);
+      }, 200);
+    });
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        if (!containerResultados.hidden && containerResultados.innerHTML) {
+          fecharResultados();
+        } else {
+          input.value = '';
+          if (btnLimpar) btnLimpar.hidden = true;
+          recolherBusca();
+        }
+      }
+    });
+
+    if (btnLimpar) {
+      btnLimpar.addEventListener('click', function () {
+        input.value = '';
+        btnLimpar.hidden = true;
+        fecharResultados();
+        input.focus();
+      });
+    }
+
+    document.addEventListener('click', function (e) {
+      if (!container.contains(e.target)) {
+        fecharResultados();
+        if (!input.value.trim()) {
+          recolherBusca();
+        }
+      }
+    });
+  }
+
+  inicializarBuscaRapidaMapa();
 
 }
 
